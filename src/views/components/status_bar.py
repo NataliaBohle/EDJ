@@ -1,0 +1,1 @@
+# Widget de la Barra de Estado
