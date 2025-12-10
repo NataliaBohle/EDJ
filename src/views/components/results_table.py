@@ -54,10 +54,12 @@ class EditableTableCard(QFrame):
         self.table = QTableWidget(self)
         self.table.setColumnCount(len(self.columns))
         self.table.setHorizontalHeaderLabels([label for _key, label in self.columns])
-        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().sectionResized.connect(self._on_section_resized)
         self.table.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.table.setWordWrap(True)
         self.table.cellChanged.connect(self._on_cell_changed)
         layout.addWidget(self.table)
 
@@ -117,7 +119,12 @@ class EditableTableCard(QFrame):
         self._adjust_table_height()
         self.data_changed.emit()
 
+    def _on_section_resized(self, _logical_index: int, _old_size: int, _new_size: int) -> None:
+        self.table.resizeRowsToContents()
+        self._adjust_table_height()
+
     def _adjust_table_height(self) -> None:
+        self.table.resizeRowsToContents()
         header_height = self.table.horizontalHeader().height() if self.table.horizontalHeader().isVisible() else 0
         vertical_height = int(self.table.verticalHeader().length())
 

@@ -109,7 +109,11 @@ class FieldRow(QFrame):
         frame = int(self.editor.frameWidth() * 2)
         min_height = 80 if isinstance(self.editor, QTextEdit) else 60
 
-        target_height = max(min_height, contents_height + margins.top() + margins.bottom() + frame + 6)
+        line_height = self.editor.fontMetrics().lineSpacing()
+        max_lines = 10
+        max_allowed_height = line_height * max_lines + margins.top() + margins.bottom() + frame + 6
+
+        target_height = max(min_height, min(max_allowed_height, contents_height + margins.top() + margins.bottom() + frame + 6))
         self.editor.setMinimumHeight(target_height)
         self.editor.setMaximumHeight(target_height)
 
