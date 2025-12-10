@@ -182,10 +182,9 @@ class AntGenPage(QWidget):
             self.btn_fetch.setEnabled(True)
 
     def _display_extracted_data(self, antgen_data: dict):
-        """Mapea los datos extraídos a los campos FieldRow."""
-
-        # Los datos reales están bajo la clave 'ANTGEN' en la respuesta del worker
-        ant = antgen_data.get("ANTGEN", {})
+        ant = antgen_data.get("ANTGEN") if isinstance(antgen_data, dict) else None
+        if not isinstance(ant, dict):
+            ant = antgen_data if isinstance(antgen_data, dict) else {}
 
         for key, field_row in self.field_map.items():
             value = ant.get(key, "")

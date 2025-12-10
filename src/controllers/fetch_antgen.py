@@ -130,7 +130,7 @@ def _extract_antgen(idp: str, log: Callable[[str], None]) -> Dict[str, Any]:
 
 # --- WORKER Y CONTROLADOR ---
 
-class AntgenFetchWorker(QThread):
+class AntgenFetchWorker(QObject):
     log_signal = pyqtSignal(str)
     # Emite (success: bool, antgen_data: dict)
     finished_signal = pyqtSignal(bool, dict)
@@ -139,6 +139,7 @@ class AntgenFetchWorker(QThread):
         super().__init__()
         self.project_id = project_id
 
+    @pyqtSlot()
     def run(self):
         self.log_signal.emit(f"🔎 Extracción en curso para ID {self.project_id}...")
 
@@ -184,8 +185,13 @@ class FetchAntgenController(QObject):
         self.worker.finished_signal.connect(self.thread.quit)
         self.worker.finished_signal.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
+        self.thread.finished.connect(self._reset_thread_state)
 
         self.thread.start()
+
+    def _reset_thread_state(self):
+        self.thread = None
+        self.worker = None
 
     @pyqtSlot(bool, dict)
     def _on_finished(self, success: bool, antgen_data: dict):
