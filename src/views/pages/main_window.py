@@ -6,8 +6,12 @@ from src.views.components.log_screen import LogScreen
 from src.views.components.sidebar import Sidebar
 from src.views.pages.new_ebook import NewEbook
 from src.views.pages.cont_ebook import ContEbook
-from src.controllers.fetch_exp import FetchExp
 from src.views.pages.project_view import ProjectView
+from src.views.pages.antgen_page import AntGenPage
+# Asegúrate de que el nombre del archivo coincida (fetch_exp o fetch_exp_controller)
+from src.controllers.fetch_exp import FetchExp
+from src.controllers.step_controller import StepController
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -44,82 +48,93 @@ class MainWindow(QMainWindow):
         self.v_splitter.setHandleWidth(1)
         self.content_layout.addWidget(self.v_splitter)
 
-        # --- CAMBIO 1: STACK DE PÁGINAS ---
+        # --- 1. STACK DE PÁGINAS ---
         self.workspace_stack = QStackedWidget()
         self.workspace_stack.setObjectName("WorkspaceStack")
         self.v_splitter.addWidget(self.workspace_stack)
 
-        # A. Agregamos una página vacía primero (Índice 0)
-        # Esto asegura que al iniciar la app, se vea blanco/vacío.
+        # Index 0: Página vacía
         self.page_empty = QWidget()
-        self.page_empty.setObjectName("PageEmpty")  # ID por si quieres darle color luego
+        self.page_empty.setObjectName("PageEmpty")
         self.workspace_stack.addWidget(self.page_empty)
 
-        # B. Página de Nuevo Expediente (Índice 1)
+        # Index 1: Nuevo Expediente
         self.page_new_ebook = NewEbook()
         self.workspace_stack.addWidget(self.page_new_ebook)
 
-        # Index 2: Vista de Proyecto (NUEVO)
+        # Index 2: Vista de Proyecto
         self.page_project_view = ProjectView()
         self.workspace_stack.addWidget(self.page_project_view)
 
-        # Index 3: Continuar (NUEVO)
+        # Index 3: Continuar proyecto
         self.page_cont_ebook = ContEbook()
         self.workspace_stack.addWidget(self.page_cont_ebook)
 
-       # --- Splitters
+        # Index 4: ANTGEN
+        # CORRECCIÓN DE NOMBRE: Usamos self.page_antgen para ser consistentes
+        self.page_antgen = AntGenPage()
+        self.workspace_stack.addWidget(self.page_antgen)
+
+        # --- 2. LOG SCREEN ---
         self.log_screen = LogScreen()
         self.v_splitter.addWidget(self.log_screen)
 
         self.h_splitter.addWidget(self.content_area)
 
-        # --- CONEXIONES ---
-        self.menu.btn_new.clicked.connect(self.show_new_ebook_page)
+        # --- 3. CONTROLADORES (¡IMPORTANTE: INICIALIZAR AQUÍ!) ---
+        # Deben crearse ANTES de hacer las conexiones
+        self.fetch_controller = FetchExp(self)
+        self.step_controller = StepController(self)
+
+        # --- 4. CONEXIONES ---
+        self.menu.btn_new.clicked.connect(self.on_new_expediente)  # Usar función wrapper
         self.menu.btn_continue.clicked.connect(self.show_continue_page)
+
         self.log_screen.visibility_changed.connect(self.update_log_splitter)
+
+        # Conexiones entre páginas
         self.page_cont_ebook.project_selected.connect(self.show_project_view)
 
-        # --- CAMBIO 2: TAMAÑOS INICIALES ---
+        # AHORA SÍ FUNCIONA: step_controller ya existe
+        self.page_project_view.action_requested.connect(self.step_controller.handle_activation)
+
+        # --- 5. TAMAÑOS INICIALES ---
         self.h_splitter.setCollapsible(0, False)
-        # Ajustamos el sidebar a 150px (más angosto) y el resto al contenido
         self.h_splitter.setSizes([150, 950])
         self.h_splitter.setStretchFactor(1, 1)
 
         self.v_splitter.setCollapsible(0, False)
         self.v_splitter.setSizes([550, 150])
         self.v_splitter.setStretchFactor(0, 1)
-    # --- CONTROLADORES ---
-        self.fetch_controller = FetchExp(self)
+
     # --- FUNCIONES ---
     def show_new_ebook_page(self):
         self.log_screen.add_log("Navegando a: Nuevo Expediente")
-        # Cambiamos a la página del formulario
         self.workspace_stack.setCurrentWidget(self.page_new_ebook)
+        self.sidebar.clear()
 
     def show_project_view(self, project_id):
         """Cambia a la pantalla de vista de proyecto y carga datos."""
-
-        # 1. Mensaje en el Log (¡Lo que faltaba!)
         self.log_screen.add_log(f"📂 Abriendo proyecto existente: {project_id}")
-
-        # 2. Cargar datos en la vista
         self.page_project_view.load_project(project_id)
-
-        # 3. Cambiar la página visible
         self.workspace_stack.setCurrentWidget(self.page_project_view)
 
-        # 4. Actualizar Sidebar
         self.sidebar.clear()
         self.sidebar.add_option(f"Proyecto Activo\nID {project_id}")
 
     def show_continue_page(self):
         self.log_screen.add_log("Consultando proyectos guardados...")
-        self.page_cont_ebook.load_projects()  # Refrescar lista al entrar
+        self.page_cont_ebook.load_projects()
         self.workspace_stack.setCurrentWidget(self.page_cont_ebook)
 
-        # Actualizar Sidebar
         self.sidebar.clear()
         self.sidebar.add_option("Seleccione un proyecto\nde la lista.")
+
+    def show_antgen_page(self, project_id):
+        self.log_screen.add_log(f"Entrando a Antecedentes Generales: {project_id}")
+        # CORREGIDO: Usamos self.page_antgen
+        self.page_antgen.load_project(project_id)
+        self.workspace_stack.setCurrentWidget(self.page_antgen)
 
     def on_continue_expediente(self):
         self.log_screen.add_log("Retomando expediente existente...")

@@ -19,9 +19,10 @@ class StepController(QObject):
         accion = None
 
         if code == "ANTGEN":
-            # Pasos: [0:Detectado, 1:Descargar, 2:Compilar]
-            if step_index == 1:
-                accion = "DESCARGAR"
+            # Si el usuario quiere descargar (paso 1) o simplemente ver (paso 0)
+            if step_index <= 1:
+                self.main_window.show_antgen_page(project_id)
+                return
             elif step_index == 2:
                 accion = "COMPILAR"
         else:

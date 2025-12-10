@@ -321,3 +321,55 @@ QSplitter::handle:hover {
 #MiniStatusCombo {
     padding: 2px;
 }
+
+/* --- COMMAND BAR --- */
+#CommandBar {
+    background-color: #ecf0f1; /* Gris claro suave */
+    border-top: 1px solid #dcdcdc;
+    border-bottom: 1px solid #dcdcdc;
+}
+
+#BtnCommand {
+    background-color: white;
+    border: 1px solid #bdc3c7;
+    color: #2c3e50;
+    padding: 6px 15px;
+    border-radius: 4px;
+    font-weight: bold;
+}
+#BtnCommand:hover {
+    background-color: #f7f9f9;
+    border-color: #95a5a6;
+}
+
+/* Botón de Acción Primaria (El Azul) */
+#BtnActionPrimary {
+    background-color: #2980b9;
+    color: white;
+    border: none;
+    padding: 8px 20px;
+    border-radius: 4px;
+    font-weight: bold;
+    font-size: 13px;
+}
+#BtnActionPrimary:hover {
+    background-color: #3498db;
+}
+
+/* --- STATUS BAR (Botones de estado) --- */
+/* Estilos para los botones del componente StatusBar que subiste */
+#StatusDetected, #StatusEditing, #StatusVerified, #StatusError {
+    padding: 5px 15px;
+    border-radius: 15px; /* Pill shape */
+    border: 1px solid #bdc3c7;
+    color: #7f8c8d;
+    background-color: white;
+    font-weight: bold;
+    font-size: 11px;
+}
+
+/* Estados Activados (Checked) */
+#StatusDetected:checked { background-color: #3498db; color: white; border-color: #3498db; }
+#StatusEditing:checked { background-color: #f39c12; color: white; border-color: #f39c12; }
+#StatusVerified:checked { background-color: #27ae60; color: white; border-color: #27ae60; }
+#StatusError:checked { background-color: #c0392b; color: white; border-color: #c0392b; }
