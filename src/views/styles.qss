@@ -1,1 +1,15 @@
-/* Estilos globales */
+/* src/views/styles.qss */
+
+/* Estilo para el contenedor del Header */
+#Header {
+    background-color: #2c3e50; /* Un azul oscuro elegante */
+    border-bottom: 2px solid #1a252f;
+}
+
+/* Estilo para el texto del título */
+#HeaderTitle {
+    color: #ecf0f1; /* Texto blanco/gris claro */
+    font-size: 18px;
+    font-weight: bold;
+    font-family: "Segoe UI", sans-serif;
+}/* Estilos globales */
