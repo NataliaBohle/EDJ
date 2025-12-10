@@ -122,6 +122,8 @@ class AntGenPage(QWidget):
             "representante_legal": self.row_representante,
             "consultora": self.row_consultora,
         }
+        for field_row in self.field_map.values():
+            field_row.status_changed.connect(self._on_field_status_changed)
 
         # Añadir a la tarjeta
         fields_layout.addWidget(QLabel("<b>DATOS PRINCIPALES</b>"))
@@ -221,11 +223,9 @@ class AntGenPage(QWidget):
                     lines.append(f"Correo: {value['email']}")
                 value = "\n".join(lines)
 
-            # Usar setPlainText para QPlainTextEdit, setHtml para QTextEdit y setText para QLineEdit
             if isinstance(field_row.editor, QPlainTextEdit):
                 field_row.editor.setPlainText(str(value))
             elif isinstance(field_row.editor, QTextEdit):
-                # Si el texto parece HTML, lo aplicamos como tal; de lo contrario, lo tratamos como texto plano
                 text_value = str(value)
                 if "<" in text_value and ">" in text_value:
                     field_row.editor.setHtml(text_value)
@@ -234,9 +234,33 @@ class AntGenPage(QWidget):
             elif isinstance(field_row.editor, QLineEdit):
                 field_row.editor.setText(str(value))
 
-            # Marcamos los campos como detectados
             field_row.status_bar.set_status("detectado")
 
+        # Aquí sí llamas al método de la clase
+        self._update_global_status_from_fields()
+
+    def _normalize_field_status(self, status: str | None) -> str:
+        status_value = (status or "").strip().lower()
+        # Normalizar "validado" a "verificado"
+        return "verificado" if status_value == "validado" else status_value
+
+    @pyqtSlot(str)
+    def _on_field_status_changed(self, _status: str):
+        """Se llama cada vez que cambia el estado de un FieldRow."""
+        self._update_global_status_from_fields()
+
+    def _update_global_status_from_fields(self):
+        """Recalcula el estado global de ANTGEN a partir de los campos individuales."""
+        statuses = [
+            self._normalize_field_status(row.status_bar.get_status())
+            for row in self.field_map.values()
+        ]
+
+        all_validated = statuses and all(status == "verificado" for status in statuses)
+        target_status = "verificado" if all_validated else "edicion"
+
+        if self.status_bar.get_status() != target_status:
+            self.status_bar.set_status(target_status)
     def load_project(self, project_id):
         """Carga el estado inicial y los datos extraídos (si existen) al abrir la página."""
         self.current_project_id = project_id
