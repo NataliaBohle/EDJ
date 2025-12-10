@@ -205,11 +205,12 @@ class AntGenPage(QWidget):
             else:
                 self.btn_fetch.setText("Extraer Información")
 
-    def _display_extracted_data(self, antgen_data: dict):
+    def _display_extracted_data(self, antgen_data: dict, field_statuses: dict | None = None):
         ant = antgen_data.get("ANTGEN") if isinstance(antgen_data, dict) else None
         if not isinstance(ant, dict):
             ant = antgen_data if isinstance(antgen_data, dict) else {}
 
+        field_statuses = field_statuses or {}
         for key, field_row in self.field_map.items():
             value = ant.get(key, "")
 
@@ -234,7 +235,8 @@ class AntGenPage(QWidget):
             elif isinstance(field_row.editor, QLineEdit):
                 field_row.editor.setText(str(value))
 
-            field_row.status_bar.set_status("detectado")
+            status_value = self._normalize_field_status(field_statuses.get(key)) or "detectado"
+            field_row.status_bar.set_status(status_value)
 
         # Aquí sí llamas al método de la clase
         self._update_global_status_from_fields()
@@ -248,6 +250,7 @@ class AntGenPage(QWidget):
     def _on_field_status_changed(self, _status: str):
         """Se llama cada vez que cambia el estado de un FieldRow."""
         self._update_global_status_from_fields()
+        self._persist_field_statuses()
 
     def _update_global_status_from_fields(self):
         """Recalcula el estado global de ANTGEN a partir de los campos individuales."""
@@ -271,6 +274,7 @@ class AntGenPage(QWidget):
         data_exists = False
         status = "detectado"
         antgen_data = {}
+        field_statuses = {}
 
         try:
             base_folder = os.path.join(os.getcwd(), "Ebook", project_id)
@@ -283,11 +287,12 @@ class AntGenPage(QWidget):
                 antgen_section = data.get("expedientes", {}).get("ANTGEN", {})
                 status = antgen_section.get("status", "detectado")
                 antgen_data = antgen_section.get("ANTGEN_DATA", {})
+                field_statuses = antgen_section.get("field_statuses", {})
 
                 if antgen_data:
                     data_exists = True
                     # Cargar la data mapeada
-                    self._display_extracted_data(antgen_data)
+                    self._display_extracted_data(antgen_data, field_statuses)
 
         except Exception as e:
             self.log_requested.emit(f"⚠️ Error leyendo estado inicial: {e}")
@@ -330,3 +335,40 @@ class AntGenPage(QWidget):
                     self.log_requested.emit(f"✅ Estado guardado correctamente.")
         except Exception as e:
             self.log_requested.emit(f"❌ Error al guardar estado: {e}")
+
+    def _persist_field_statuses(self):
+        """Guarda los estados individuales de cada campo en el JSON del proyecto."""
+        if self.is_loading or not self.current_project_id:
+            return
+
+        project_id = self.current_project_id
+        statuses_payload = {
+            key: self._normalize_field_status(row.status_bar.get_status()) or "detectado"
+            for key, row in self.field_map.items()
+        }
+
+        try:
+            base_folder = os.path.join(os.getcwd(), "Ebook", project_id)
+            json_path = os.path.join(base_folder, f"{project_id}_fetch.json")
+
+            if not os.path.exists(json_path):
+                self.log_requested.emit(
+                    "⚠️ No se encontró el archivo de configuración para guardar estados de campos.")
+                return
+
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            antgen_section = data.get("expedientes", {}).get("ANTGEN")
+            if antgen_section is None:
+                self.log_requested.emit("⚠️ No existe la sección ANTGEN en el archivo de configuración.")
+                return
+
+            antgen_section["field_statuses"] = statuses_payload
+
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+
+            self.log_requested.emit("✅ Estados de campos guardados correctamente.")
+        except Exception as e:
+            self.log_requested.emit(f"❌ Error al guardar estados de campos: {e}")
