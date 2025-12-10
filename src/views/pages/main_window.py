@@ -5,7 +5,9 @@ from src.views.components.menu import Menu
 from src.views.components.log_screen import LogScreen
 from src.views.components.sidebar import Sidebar
 from src.views.pages.new_ebook import NewEbook
-
+from src.views.pages.cont_ebook import ContEbook
+from src.controllers.fetch_exp import FetchExp
+from src.views.pages.project_view import ProjectView
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -57,6 +59,15 @@ class MainWindow(QMainWindow):
         self.page_new_ebook = NewEbook()
         self.workspace_stack.addWidget(self.page_new_ebook)
 
+        # Index 2: Vista de Proyecto (NUEVO)
+        self.page_project_view = ProjectView()
+        self.workspace_stack.addWidget(self.page_project_view)
+
+        # Index 3: Continuar (NUEVO)
+        self.page_cont_ebook = ContEbook()
+        self.workspace_stack.addWidget(self.page_cont_ebook)
+
+       # --- Splitters
         self.log_screen = LogScreen()
         self.v_splitter.addWidget(self.log_screen)
 
@@ -64,8 +75,9 @@ class MainWindow(QMainWindow):
 
         # --- CONEXIONES ---
         self.menu.btn_new.clicked.connect(self.show_new_ebook_page)
-        self.menu.btn_continue.clicked.connect(self.on_continue_expediente)
+        self.menu.btn_continue.clicked.connect(self.show_continue_page)
         self.log_screen.visibility_changed.connect(self.update_log_splitter)
+        self.page_cont_ebook.project_selected.connect(self.show_project_view)
 
         # --- CAMBIO 2: TAMAÑOS INICIALES ---
         self.h_splitter.setCollapsible(0, False)
@@ -76,15 +88,35 @@ class MainWindow(QMainWindow):
         self.v_splitter.setCollapsible(0, False)
         self.v_splitter.setSizes([550, 150])
         self.v_splitter.setStretchFactor(0, 1)
-
+    # --- CONTROLADORES ---
+        self.fetch_controller = FetchExp(self)
     # --- FUNCIONES ---
     def show_new_ebook_page(self):
         self.log_screen.add_log("Navegando a: Nuevo Expediente")
         # Cambiamos a la página del formulario
         self.workspace_stack.setCurrentWidget(self.page_new_ebook)
 
+    def show_project_view(self, project_id):
+        """Cambia a la pantalla de vista de proyecto y carga datos."""
+        self.page_project_view.load_project(project_id)
+        self.workspace_stack.setCurrentWidget(self.page_project_view)
+
+    def show_continue_page(self):
+        self.log_screen.add_log("Consultando proyectos guardados...")
+        self.page_cont_ebook.load_projects()  # Refrescar lista al entrar
+        self.workspace_stack.setCurrentWidget(self.page_cont_ebook)
+
+        # Actualizar Sidebar
+        self.sidebar.clear()
+        self.sidebar.add_option("Seleccione un proyecto\nde la lista.")
+
     def on_continue_expediente(self):
         self.log_screen.add_log("Retomando expediente existente...")
+
+    def on_new_expediente(self):
+        self.log_screen.add_log("Navegando a: Nuevo Expediente")
+        self.workspace_stack.setCurrentWidget(self.page_new_ebook)
+        self.sidebar.clear()
 
     def update_log_splitter(self, collapsed):
         if collapsed:

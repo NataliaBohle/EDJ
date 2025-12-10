@@ -7,29 +7,26 @@ class Sidebar(QFrame):
         super().__init__()
         self.setObjectName("Sidebar")
 
-        # Layout principal de la barra
         self.main_layout = QVBoxLayout()
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
         self.setLayout(self.main_layout)
 
-        # 1. Título o Cabecera del Sidebar
+        # Título
         self.title_label = QLabel("PANEL DE CONTROL")
         self.title_label.setObjectName("SidebarTitle")
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.main_layout.addWidget(self.title_label)
 
-        # 2. Área Scrollable (Para tus elementos dinámicos)
+        # Scroll Area
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)  # Sin borde feo
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll_area.setObjectName("SidebarScroll")
 
-        # Contenedor interno donde irán los widgets reales
         self.container = QWidget()
         self.container.setObjectName("SidebarContainer")
 
-        # Layout para los elementos (se irán apilando hacia arriba)
         self.container_layout = QVBoxLayout(self.container)
         self.container_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.container_layout.setContentsMargins(10, 10, 10, 10)
@@ -38,12 +35,19 @@ class Sidebar(QFrame):
         self.scroll_area.setWidget(self.container)
         self.main_layout.addWidget(self.scroll_area)
 
-        # --- Ejemplo: Agregar un botón de prueba ---
-        self.add_option("Opción General")
+        # --- CAMBIO: Ya no agregamos "Opción General" aquí ---
+        # La sidebar inicia vacía.
 
     def add_option(self, text):
-        """Método helper para agregar botones dinámicamente desde fuera."""
         btn = QPushButton(text)
         btn.setObjectName("SidebarButton")
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.container_layout.addWidget(btn)
+
+    def clear(self):
+        """Borra todos los botones del sidebar."""
+        while self.container_layout.count():
+            item = self.container_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()

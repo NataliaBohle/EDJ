@@ -145,11 +145,11 @@ QSplitter::handle:hover {
     background-color: transparent;
     color: #2c3e50;
     text-align: left;
-    padding: 8px 15px;
+    padding: 8px 12px;
     border: none;
     border-radius: 6px;
     font-family: "Open Sans", sans-serif;
-    font-size: 14px;
+    font-size: 10px;
 }
 
 #SidebarButton:hover {
@@ -201,4 +201,123 @@ QSplitter::handle:hover {
 /* Fondo de la página */
 #NewEbookPage {
     background-color: transparent;
+}
+
+/* --- COMPONENTE ALERT --- */
+#AlertDialog {
+    background-color: #ecf0f1;
+    border: 2px solid #e74c3c; /* Borde rojo suave por defecto (o cámbialo según tipo) */
+    border-radius: 8px;
+}
+
+#AlertTitle {
+    color: #c0392b;
+    font-size: 18px;
+    font-weight: bold;
+    font-family: "Segoe UI";
+}
+
+#AlertMessage {
+    color: #2c3e50;
+    font-size: 14px;
+}
+
+#AlertButton {
+    background-color: #e74c3c;
+    color: white;
+    padding: 8px 20px;
+    border-radius: 4px;
+    font-weight: bold;
+    border: none;
+}
+#AlertButton:hover {
+    background-color: #c0392b;
+}
+
+/* Label temporal en ProjectView */
+#ProjectInfoLabel {
+    color: #7f8c8d;
+    font-size: 16px;
+}
+/* --- TARJETA DE EXPEDIENTE --- */
+#ExpedienteCard {
+    background-color: white;
+    border: 1px solid #dcdcdc;
+    border-radius: 8px;
+    /* Sombra suave */
+    border-bottom: 2px solid #bdc3c7;
+}
+
+#CardTitle {
+    color: #2c3e50;
+    font-size: 14px; /* Antes 16px */
+    font-weight: bold;
+    font-family: "Segoe UI";
+}
+
+#CardCode {
+    color: #95a5a6;
+    font-size: 12px; /* Antes 14px */
+    font-weight: bold;
+    margin-left: 5px;
+}
+
+#CardActionButton:hover {
+    background-color: #3498db;
+}
+#CardActionButton:disabled {
+    background-color: #bdc3c7;
+}
+/* --- BOTÓN DE ACCIÓN (Estados Dinámicos) --- */
+
+#CardActionButton {
+    color: white;
+    border-radius: 4px;
+    border: none;
+    font-weight: bold;
+    font-size: 12px;
+    margin-top: 2px;
+    background-color: #2980b9;
+} /* <--- ¡IMPORTANTE! Esta llave cierra el bloque base */
+
+/* 2. Variantes (Se escriben AFUERA del bloque anterior) */
+
+#CardActionButton[status="detectado"] {
+    background-color: #2563eb;
+}
+#CardActionButton[status="detectado"]:hover {
+    background-color: #3b82f6;
+}
+
+#CardActionButton[status="edicion"] {
+    background-color: #f59e0b;
+}
+#CardActionButton[status="edicion"]:hover {
+    background-color: #fbbf24;
+}
+
+#CardActionButton[status="error"] {
+    background-color: #ef4444;
+}
+#CardActionButton[status="error"]:hover {
+    background-color: #f87171;
+}
+
+#CardActionButton[status="verificado"] {
+    background-color: #10b981;
+}
+#CardActionButton[status="verificado"]:hover {
+    background-color: #34d399;
+}
+
+/* Scroll Area del Project View */
+#ProjectScroll {
+    background-color: transparent;
+    border: none;
+}
+#ProjectContainer {
+    background-color: transparent;
+}
+#MiniStatusCombo {
+    padding: 2px;
 }
