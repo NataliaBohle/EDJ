@@ -1,16 +1,30 @@
+"""Generador de PDFs para Antecedentes Generales usando ReportLab."""
+
+from __future__ import annotations
+
 import json
 import os
 from datetime import datetime
-from html import escape
-from string import Template
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List
 
-import fitz  # PyMuPDF
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import inch
+from reportlab.lib.styles import ParagraphStyle, StyleSheet1
+from reportlab.lib.units import mm
+from reportlab.platypus import (  # type: ignore
+    Image,
+    PageBreak,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
 
 
 class AntgenCompiler(QObject):
-    """Compila los datos de Antecedentes Generales en un PDF."""
+    """Compila los datos de Antecedentes Generales en un PDF con estilo formal."""
 
     log_requested = pyqtSignal(str)
     compilation_started = pyqtSignal()
@@ -18,7 +32,7 @@ class AntgenCompiler(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._page_size = (612, 936)  # 8.5in x 13in at 72 dpi (Legal chileno)
+        self._page_size = (8.5 * inch, 13 * inch)  # Tamaño legal chileno
 
     @pyqtSlot(str, dict)
     def compile_pdf(self, project_id: str, antgen_payload: dict | None = None):
@@ -29,8 +43,7 @@ class AntgenCompiler(QObject):
             if not payload:
                 raise ValueError("No hay datos de Antecedentes Generales para compilar.")
 
-            sections = self._build_sections(project_id, payload)
-            output_path = self._write_pdf(project_id, sections)
+            output_path = self._build_pdf(project_id, payload)
             self.log_requested.emit(f"✅ PDF generado: {output_path}")
             self.compilation_finished.emit(True, output_path)
         except Exception as exc:  # noqa: BLE001
@@ -49,139 +62,229 @@ class AntgenCompiler(QObject):
 
         return data.get("expedientes", {}).get("ANTGEN", {}).get("ANTGEN_DATA", {})
 
-    def _write_pdf(self, project_id: str, sections: Dict[str, str]) -> str:
+    def _build_pdf(self, project_id: str, antgen: Dict[str, Any]) -> str:
         base_folder = os.path.join(os.getcwd(), "Ebook", project_id)
         os.makedirs(base_folder, exist_ok=True)
         output_path = os.path.join(base_folder, "ANTGEN_compilado.pdf")
 
-        doc = fitz.open()
-        rect = fitz.Rect(36, 36, self._page_size[0] - 36, self._page_size[1] - 36)
+        styles = self._build_styles()
+        story: List[Any] = []
 
-        for key in ("cover", "body"):
-            page = doc.new_page(width=self._page_size[0], height=self._page_size[1])
-            page.insert_htmlbox(rect, sections[key])
+        self._add_cover(story, styles, project_id, antgen)
+        self._add_registro_estados(story, styles, antgen.get("registro_estados", []))
+        self._add_datos_generales(story, styles, antgen)
+        self._add_contacto(story, styles, antgen)
+        self._add_permisos(story, styles, antgen.get("permisos_ambientales", []))
+        self._add_descripcion(story, styles, antgen)
 
-        doc.save(output_path)
-        doc.close()
-        return output_path
-
-    def _build_sections(self, project_id: str, antgen: Dict[str, Any]) -> Dict[str, str]:
-        assets_path = os.path.join(os.getcwd(), "assets", "templates")
-        styles_path = os.path.join(assets_path, "pdf_styles.css")
-        cover_path = os.path.join(assets_path, "cover_antgen.html")
-        template_path = os.path.join(assets_path, "antgen_template.html")
-
-        with open(styles_path, "r", encoding="utf-8") as f:
-            styles = f.read()
-        with open(cover_path, "r", encoding="utf-8") as f:
-            cover_template = Template(f.read())
-        with open(template_path, "r", encoding="utf-8") as f:
-            body_template = Template(f.read())
-
-        info = self._extract_basic_info(project_id, antgen)
-        pas_rows = self._render_pas_table(antgen.get("permisos_ambientales", []))
-        estados_rows = self._render_estados_table(antgen.get("registro_estados", []))
-
-        cover_html = self._wrap_html(cover_template.safe_substitute(info), styles)
-        body_html = self._wrap_html(body_template.safe_substitute({
-            "project_name": escape(info.get("project_name", "")),
-            "project_id": escape(info.get("project_id", "")),
-            "tipo_proyecto": escape(antgen.get("tipo_proyecto", "No indicado")),
-            "forma_presentacion": escape(antgen.get("forma_presentacion", "No indicada")),
-            "monto_inversion": escape(antgen.get("monto_inversion", "No indicado")),
-            "estado_actual": escape(antgen.get("estado_actual", "No indicado")),
-            "encargado": escape(antgen.get("encargado", "")),
-            "descripcion_proyecto": self._format_paragraph(antgen.get("descripcion_proyecto", "")),
-            "objetivo_proyecto": self._format_paragraph(antgen.get("objetivo_proyecto", "")),
-            "titular": self._format_contact_block(antgen.get("titular", {})),
-            "representante_legal": self._format_contact_block(antgen.get("representante_legal", {})),
-            "consultora": self._format_contact_block(antgen.get("consultora", {})),
-            "permisos_rows": pas_rows,
-            "registro_rows": estados_rows,
-            "timestamp": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        }), styles)
-
-        return {
-            "cover": cover_html,
-            "body": body_html,
-        }
-
-    def _wrap_html(self, content: str, styles: str) -> str:
-        return (
-            "<html><head><meta charset='utf-8'><style>"
-            + styles +
-            "</style></head><body class='pdf-document'>" + content + "</body></html>"
+        doc = SimpleDocTemplate(
+            output_path,
+            pagesize=self._page_size,
+            rightMargin=18 * mm,
+            leftMargin=18 * mm,
+            topMargin=18 * mm,
+            bottomMargin=18 * mm,
+            title=f"ANTGEN_{project_id}",
         )
 
-    def _extract_basic_info(self, project_id: str, antgen: Dict[str, Any]) -> Dict[str, str]:
+        doc.build(story, onLaterPages=self._add_page_number(styles))
+        return output_path
+
+    def _build_styles(self) -> StyleSheet1:
+        primary = colors.HexColor("#1F3A93")
+        accent = colors.HexColor("#4B6D88")
+        gray = colors.HexColor("#555555")
+
+        styles = StyleSheet1()
+        styles.add(ParagraphStyle(name="TitleCover", fontName="Helvetica-Bold", fontSize=20, textColor=primary, spaceAfter=12))
+        styles.add(ParagraphStyle(name="SubtitleCover", fontName="Helvetica", fontSize=11, textColor=gray, spaceAfter=6))
+        styles.add(ParagraphStyle(name="Section", fontName="Helvetica-Bold", fontSize=14, textColor=primary, spaceBefore=8, spaceAfter=6))
+        styles.add(ParagraphStyle(name="Subsection", fontName="Helvetica-Bold", fontSize=12, textColor=accent, spaceBefore=6, spaceAfter=4))
+        styles.add(ParagraphStyle(name="Body", fontName="Helvetica", fontSize=10, leading=13, textColor=colors.black, spaceAfter=4))
+        styles.add(ParagraphStyle(name="Muted", fontName="Helvetica", fontSize=10, leading=13, textColor=colors.HexColor("#777777"), spaceAfter=4))
+        styles.add(ParagraphStyle(name="TableHeader", fontName="Helvetica-Bold", fontSize=10, textColor=colors.white, alignment=1))
+        styles.add(ParagraphStyle(name="TableBody", fontName="Helvetica", fontSize=10, textColor=colors.black))
+        return styles
+
+    def _add_cover(self, story: List[Any], styles: StyleSheet1, project_id: str, antgen: Dict[str, Any]):
         logo_path = os.path.join(os.getcwd(), "assets", "images", "Logo.png")
-        return {
-            "project_name": antgen.get("nombre_proyecto", "Proyecto sin título"),
-            "forma_ingreso": antgen.get("forma_presentacion", "No informado"),
-            "estado": antgen.get("estado_actual", "Detectado"),
-            "expediente_tipo": "Antecedentes Generales",
-            "project_id": project_id,
-            "logo_path": logo_path,
-            "generation_date": datetime.now().strftime("%d/%m/%Y"),
-        }
+        if os.path.exists(logo_path):
+            story.append(Image(logo_path, width=120, height=80))
+        story.append(Spacer(1, 30))
 
-    def _format_paragraph(self, text: str) -> str:
-        if not text:
-            return "<p class='text-muted'>Sin información declarada.</p>"
+        story.append(Paragraph("ANTECEDENTES GENERALES", styles["TitleCover"]))
+        story.append(Paragraph("Informe del expediente", styles["SubtitleCover"]))
+        story.append(Spacer(1, 12))
 
-        sanitized = escape(str(text)).replace("\n", "<br>")
-        return f"<p class='text-base'>{sanitized}</p>"
+        meta_rows = [
+            ("Nombre del proyecto", antgen.get("nombre_proyecto", "No informado")),
+            ("Tipo de expediente", "Antecedentes Generales"),
+            ("Forma de ingreso", antgen.get("forma_presentacion", "No indicada")),
+            ("Estado", antgen.get("estado_actual", "No indicado")),
+            ("ID del proyecto", project_id),
+            ("Fecha de generación", datetime.now().strftime("%d/%m/%Y")),
+        ]
 
-    def _format_contact_block(self, data: Dict[str, str] | str) -> str:
+        table = Table(meta_rows, hAlign="LEFT", colWidths=[140, 320])
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E6EBF1")),
+            ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#1F3A93")),
+            ("LINEBELOW", (0, 0), (-1, -1), colors.HexColor("#D3D9E2")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(table)
+        story.append(PageBreak())
+
+    def _add_registro_estados(self, story: List[Any], styles: StyleSheet1, registros: Iterable[Dict[str, Any]]):
+        story.append(Paragraph("Registro de estados", styles["Section"]))
+
+        headers = [Paragraph("Estado", styles["TableHeader"]), Paragraph("Documento", styles["TableHeader"]), Paragraph("Número", styles["TableHeader"]), Paragraph("Fecha", styles["TableHeader"]), Paragraph("Autor", styles["TableHeader"])]
+        rows = [headers]
+        for row in registros or []:
+            rows.append([
+                Paragraph(str(row.get("estado", "")), styles["TableBody"]),
+                Paragraph(str(row.get("documento", "")), styles["TableBody"]),
+                Paragraph(str(row.get("numero", "")), styles["TableBody"]),
+                Paragraph(str(row.get("fecha", "")), styles["TableBody"]),
+                Paragraph(str(row.get("autor", "")), styles["TableBody"]),
+            ])
+
+        if len(rows) == 1:
+            rows.append([Paragraph("Sin registro de estados.", styles["Muted"])] + ["", "", "", ""])
+
+        self._style_table(rows, story)
+        story.append(Spacer(1, 12))
+        story.append(PageBreak())
+
+    def _add_datos_generales(self, story: List[Any], styles: StyleSheet1, antgen: Dict[str, Any]):
+        story.append(Paragraph("Antecedentes generales", styles["Section"]))
+        campos = [
+            ("Tipo de proyecto", antgen.get("tipo_proyecto", "No indicado")),
+            ("Monto de inversión", antgen.get("monto_inversion", "No indicado")),
+            ("Estado actual", antgen.get("estado_actual", "No indicado")),
+            ("Encargado/a evaluación", antgen.get("encargado", "No indicado")),
+        ]
+
+        for label, value in campos:
+            story.append(Paragraph(f"<b>{label}:</b> {self._format_text(value)}", styles["Body"]))
+
+        story.append(Spacer(1, 10))
+        story.append(PageBreak())
+
+    def _add_contacto(self, story: List[Any], styles: StyleSheet1, antgen: Dict[str, Any]):
+        blocks = [
+            ("Información del titular", antgen.get("titular", {})),
+            ("Información del representante legal", antgen.get("representante_legal", {})),
+            ("Consultora ambiental", antgen.get("consultora", {})),
+        ]
+
+        for title, data in blocks:
+            story.append(Paragraph(title, styles["Subsection"]))
+            story.append(Paragraph(self._format_contact_block(data), styles["Body"]))
+            story.append(Spacer(1, 6))
+
+        story.append(PageBreak())
+
+    def _add_permisos(self, story: List[Any], styles: StyleSheet1, permisos: Iterable[Dict[str, Any]]):
+        story.append(Paragraph("Permisos Ambientales Asociados", styles["Section"]))
+
+        headers = [Paragraph("Artículo", styles["TableHeader"]), Paragraph("Nombre", styles["TableHeader"]), Paragraph("Tipo", styles["TableHeader"]), Paragraph("Certificado", styles["TableHeader"])]
+        rows = [headers]
+        for row in permisos or []:
+            rows.append([
+                Paragraph(str(row.get("articulo", "")), styles["TableBody"]),
+                Paragraph(str(row.get("nombre", "")), styles["TableBody"]),
+                Paragraph(str(row.get("tipo", "")), styles["TableBody"]),
+                Paragraph(str(row.get("certificado", "")), styles["TableBody"]),
+            ])
+
+        if len(rows) == 1:
+            rows.append([Paragraph("No cuenta con Permisos Ambientales Sectoriales", styles["Muted"])] + ["", "", ""])
+
+        self._style_table(rows, story)
+        story.append(Spacer(1, 10))
+        story.append(PageBreak())
+
+    def _add_descripcion(self, story: List[Any], styles: StyleSheet1, antgen: Dict[str, Any]):
+        story.append(Paragraph("Descripción del proyecto", styles["Section"]))
+        descripcion = self._split_paragraphs(antgen.get("descripcion_proyecto", ""))
+        if descripcion:
+            for p in descripcion:
+                story.append(Paragraph(p, styles["Body"]))
+                story.append(Spacer(1, 4))
+        else:
+            story.append(Paragraph("Sin información declarada.", styles["Muted"]))
+
+        story.append(Spacer(1, 10))
+
+        story.append(Paragraph("Objetivo del proyecto", styles["Section"]))
+        objetivo = self._split_paragraphs(antgen.get("objetivo_proyecto", ""))
+        if objetivo:
+            for p in objetivo:
+                story.append(Paragraph(p, styles["Body"]))
+                story.append(Spacer(1, 4))
+        else:
+            story.append(Paragraph("Sin información declarada.", styles["Muted"]))
+
+    def _style_table(self, rows: List[List[Any]], story: List[Any]):
+        table = Table(rows, repeatRows=1, hAlign="LEFT")
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F3A93")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#D3D9E2")),
+            ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#1F3A93")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        story.append(table)
+
+    def _format_text(self, text: Any) -> str:
+        if text is None:
+            return "No indicado"
+        return str(text).strip() or "No indicado"
+
+    def _format_contact_block(self, data: Dict[str, Any] | str) -> str:
         if isinstance(data, str):
-            cleaned = data.strip()
-            if cleaned:
-                return f"<p class='text-base'>{escape(cleaned).replace('\n', '<br>')}</p>"
-            return "<p class='text-muted'>Sin información declarada.</p>"
+            value = data.strip()
+            return value or "Sin información declarada."
 
         if not isinstance(data, dict) or not data:
-            return "<p class='text-muted'>Sin información declarada.</p>"
+            return "Sin información declarada."
 
-        lines: List[str] = []
-        if data.get("nombre"):
-            lines.append(f"<strong>Nombre:</strong> {escape(str(data['nombre']))}")
-        if data.get("domicilio"):
-            lines.append(f"<strong>Domicilio:</strong> {escape(str(data['domicilio']))}")
-        if data.get("email"):
-            lines.append(f"<strong>Correo:</strong> {escape(str(data['email']))}")
+        parts = []
+        for label, key in [
+            ("Nombre", "nombre"),
+            ("Domicilio", "domicilio"),
+            ("Ciudad", "ciudad"),
+            ("Teléfono", "telefono"),
+            ("Fax", "fax"),
+            ("Correo", "email"),
+        ]:
+            if data.get(key):
+                parts.append(f"<b>{label}:</b> {self._format_text(data[key])}")
 
-        return "<p class='text-base'>" + "<br>".join(lines) + "</p>"
+        return "<br/>".join(parts) or "Sin información declarada."
 
-    def _render_pas_table(self, rows: List[Dict[str, str]]) -> str:
-        if not rows:
-            return "<tr><td colspan='4' class='text-muted'>Sin permisos declarados.</td></tr>"
+    def _split_paragraphs(self, text: Any) -> List[str]:
+        if not text:
+            return []
+        return [segment.strip() for segment in str(text).split("\n") if segment.strip()]
 
-        rendered = []
-        for row in rows:
-            rendered.append(
-                "<tr>"
-                f"<td>{escape(str(row.get('articulo', '')))}</td>"
-                f"<td>{escape(str(row.get('nombre', '')))}</td>"
-                f"<td>{escape(str(row.get('tipo', '')))}</td>"
-                f"<td>{escape(str(row.get('certificado', '')))}</td>"
-                "</tr>"
-            )
-        return "".join(rendered)
+    def _add_page_number(self, styles: StyleSheet1):
+        def _callback(canvas, doc):
+            canvas.saveState()
+            canvas.setFont("Helvetica", 8)
+            canvas.setFillColor(colors.HexColor("#777777"))
+            page_number = canvas.getPageNumber()
+            canvas.drawRightString(self._page_size[0] - 18 * mm, 12 * mm, f"Página {page_number}")
+            canvas.restoreState()
 
-    def _render_estados_table(self, rows: List[Dict[str, str]]) -> str:
-        if not rows:
-            return "<tr><td colspan='5' class='text-muted'>Sin registro de estados.</td></tr>"
-
-        rendered = []
-        for row in rows:
-            rendered.append(
-                "<tr>"
-                f"<td>{escape(str(row.get('estado', '')))}</td>"
-                f"<td>{escape(str(row.get('documento', '')))}</td>"
-                f"<td>{escape(str(row.get('numero', '')))}</td>"
-                f"<td>{escape(str(row.get('fecha', '')))}</td>"
-                f"<td>{escape(str(row.get('autor', '')))}</td>"
-                "</tr>"
-            )
-        return "".join(rendered)
+        return _callback
 
