@@ -35,11 +35,26 @@ class RichTextEditorDialog(QDialog):
         layout.addWidget(self.toolbar)
         layout.addWidget(self.editor)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel,
-                                   parent=self)
+        self._validated = False
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel,
+            parent=self,
+        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        save_and_validate = buttons.addButton(
+            "Guardar y validar", QDialogButtonBox.ButtonRole.AcceptRole
+        )
+        save_and_validate.clicked.connect(self._accept_and_validate)
         layout.addWidget(buttons)
+
+    def was_validated(self) -> bool:
+        return self._validated
+
+    def _accept_and_validate(self) -> None:
+        self._validated = True
+        self.accept()
 
     def get_html(self) -> str:
         return self.editor.toHtml()

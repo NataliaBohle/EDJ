@@ -73,3 +73,6 @@ class FieldRow(QFrame):
         )
         if dialog.exec():
             self.editor.setHtml(dialog.get_html())
+            if dialog.was_validated():
+                self.status_bar.set_status("verificado")
+                self.status_changed.emit("verificado")
