@@ -59,7 +59,7 @@ class AntgenCompiler(QObject):
 
         for key in ("cover", "body"):
             page = doc.new_page(width=self._page_size[0], height=self._page_size[1])
-            page.insert_htmlbox(rect, sections[key], css=sections["styles"])
+            page.insert_htmlbox(rect, sections[key])
 
         doc.save(output_path)
         doc.close()
@@ -82,7 +82,7 @@ class AntgenCompiler(QObject):
         pas_rows = self._render_pas_table(antgen.get("permisos_ambientales", []))
         estados_rows = self._render_estados_table(antgen.get("registro_estados", []))
 
-        cover_html = self._wrap_html(cover_template.safe_substitute(info))
+        cover_html = self._wrap_html(cover_template.safe_substitute(info), styles)
         body_html = self._wrap_html(body_template.safe_substitute({
             "project_name": escape(info.get("project_name", "")),
             "project_id": escape(info.get("project_id", "")),
@@ -99,18 +99,18 @@ class AntgenCompiler(QObject):
             "permisos_rows": pas_rows,
             "registro_rows": estados_rows,
             "timestamp": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        }))
+        }), styles)
 
         return {
-            "styles": styles,
             "cover": cover_html,
             "body": body_html,
         }
 
-    def _wrap_html(self, content: str) -> str:
+    def _wrap_html(self, content: str, styles: str) -> str:
         return (
-            "<html><head><meta charset='utf-8'></head>"
-            "<body class='pdf-document'>" + content + "</body></html>"
+            "<html><head><meta charset='utf-8'><style>"
+            + styles +
+            "</style></head><body class='pdf-document'>" + content + "</body></html>"
         )
 
     def _extract_basic_info(self, project_id: str, antgen: Dict[str, Any]) -> Dict[str, str]:
