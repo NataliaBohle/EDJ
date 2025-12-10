@@ -7,6 +7,7 @@ from src.views.components.rich_text_dialog import RichTextEditorDialog
 
 class FieldRow(QFrame):
     status_changed = pyqtSignal(str)
+    content_changed = pyqtSignal()
 
     def __init__(self, label_text: str, parent: QWidget | None = None, is_multiline: bool = False,
                  rich_editor: bool = False):
@@ -45,6 +46,7 @@ class FieldRow(QFrame):
             self.editor = QLineEdit(self)
 
         self.editor.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._connect_change_signal()
         editor_layout.addWidget(self.editor)
 
         if is_multiline and rich_editor:
@@ -64,6 +66,19 @@ class FieldRow(QFrame):
         # Conectar el cambio de estado a la señal de la fila
         self.status_bar.status_changed.connect(self.status_changed)
         layout.addWidget(self.status_bar)
+
+    def _connect_change_signal(self):
+        if isinstance(self.editor, QLineEdit):
+            self.editor.textChanged.connect(self.content_changed.emit)
+        else:
+            self.editor.textChanged.connect(self.content_changed.emit)
+
+    def get_value(self):
+        if isinstance(self.editor, QTextEdit):
+            return self.editor.toHtml() if self.rich_editor else self.editor.toPlainText()
+        if isinstance(self.editor, QPlainTextEdit):
+            return self.editor.toPlainText()
+        return self.editor.text()
 
     def _open_rich_editor_dialog(self):
         dialog = RichTextEditorDialog(

@@ -63,6 +63,7 @@ class AntGenPage(QWidget):
         self.command_bar.layout().setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.btn_fetch = self.command_bar.add_button("Extraer Información", object_name="BtnActionPrimary")
+        self.btn_compile_pdf = self.command_bar.add_button("Compilar en PDF", object_name="BtnActionSuccess")
         self.btn_fetch.clicked.connect(self._on_fetch_clicked)
         # Barra de Progreso
         self.progress_bar = QProgressBar(self.command_bar)
@@ -124,6 +125,7 @@ class AntGenPage(QWidget):
         }
         for field_row in self.field_map.values():
             field_row.status_changed.connect(self._on_field_status_changed)
+            field_row.content_changed.connect(self._on_field_content_changed)
 
         # Añadir a la tarjeta
         fields_layout.addWidget(QLabel("<b>DATOS PRINCIPALES</b>"))
@@ -252,6 +254,10 @@ class AntGenPage(QWidget):
         self._update_global_status_from_fields()
         self._persist_field_statuses()
 
+    def _on_field_content_changed(self):
+        """Persiste los valores editados de los campos en el JSON del proyecto."""
+        self._persist_field_values()
+
     def _update_global_status_from_fields(self):
         """Recalcula el estado global de ANTGEN a partir de los campos individuales."""
         statuses = [
@@ -372,3 +378,45 @@ class AntGenPage(QWidget):
             self.log_requested.emit("✅ Estados de campos guardados correctamente.")
         except Exception as e:
             self.log_requested.emit(f"❌ Error al guardar estados de campos: {e}")
+
+    def _persist_field_values(self):
+        """Guarda los contenidos de los campos editables en el JSON del proyecto."""
+        if self.is_loading or not self.current_project_id:
+            return
+
+        project_id = self.current_project_id
+        values_payload = {
+            key: row.get_value()
+            for key, row in self.field_map.items()
+        }
+
+        try:
+            base_folder = os.path.join(os.getcwd(), "Ebook", project_id)
+            json_path = os.path.join(base_folder, f"{project_id}_fetch.json")
+
+            if not os.path.exists(json_path):
+                self.log_requested.emit(
+                    "⚠️ No se encontró el archivo de configuración para guardar datos de campos.")
+                return
+
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            antgen_section = data.get("expedientes", {}).get("ANTGEN")
+            if antgen_section is None:
+                self.log_requested.emit("⚠️ No existe la sección ANTGEN en el archivo de configuración.")
+                return
+
+            existing_data = antgen_section.get("ANTGEN_DATA")
+            if not isinstance(existing_data, dict):
+                existing_data = {}
+
+            existing_data.update(values_payload)
+            antgen_section["ANTGEN_DATA"] = existing_data
+
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+
+            self.log_requested.emit("✅ Datos de campos guardados correctamente.")
+        except Exception as e:
+            self.log_requested.emit(f"❌ Error al guardar datos de campos: {e}")
