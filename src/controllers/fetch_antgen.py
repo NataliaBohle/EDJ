@@ -122,8 +122,47 @@ def _extract_antgen(idp: str, log: Callable[[str], None]) -> Dict[str, Any]:
     ant["representante_legal"] = extraer_contacto("Representante Legal")
     ant["consultora"] = extraer_contacto("Consultora Ambiental")
 
-    # [Omito la lógica de PAS y Registro de Estados por ser larga, pero se ejecutaría aquí]
-    # En un entorno real, la lógica de PAS/Registro de estados de b1_antgen.py se copiaría aquí.
+    # Permisos Ambientales Sectoriales (PAS)
+    permisos: List[Dict[str, str]] = []
+    tabla_pas = soup.select_one("table#example2")
+    if tabla_pas:
+        cuerpo = tabla_pas.find("tbody") or tabla_pas
+        for row in cuerpo.find_all("tr"):
+            celdas = [td.get_text(" ", strip=True) for td in row.find_all("td")]
+            if len(celdas) >= 3:
+                fila = {"articulo": celdas[0], "nombre": celdas[1], "tipo": celdas[2]}
+                if len(celdas) >= 4:
+                    fila["certificado"] = celdas[3]
+                permisos.append(fila)
+    if permisos:
+        ant["permisos_ambientales"] = permisos
+
+    # Registro de estados del proyecto
+    estados: List[Dict[str, str]] = []
+    tabla_estados = soup.find("table", id="detallelistado")
+    if tabla_estados:
+        filas = tabla_estados.find_all("tr")
+        for i, row in enumerate(filas):
+            celdas = row.find_all("td")
+            if len(celdas) >= 5:
+                estado = celdas[0].get_text(strip=True)
+                doc_link = celdas[1].find("a")
+                documento = doc_link.get_text(strip=True) if doc_link else celdas[1].get_text(strip=True)
+                numero = celdas[2].get_text(strip=True)
+                fecha = celdas[3].get_text(strip=True)
+                autor = celdas[4].get_text(strip=True)
+                # Ignorar encabezado si viene como fila
+                if i == 0 and estado.lower() == "estado" and documento.lower() == "documento":
+                    continue
+                estados.append({
+                    "estado": estado,
+                    "documento": documento,
+                    "numero": numero,
+                    "fecha": fecha,
+                    "autor": autor,
+                })
+    if estados:
+        ant["registro_estados"] = estados
 
     return ant
 
