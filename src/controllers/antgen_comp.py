@@ -1,12 +1,12 @@
+import ctypes.util
 import json
 import os
 from datetime import datetime
 from html import escape
 from string import Template
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
-from weasyprint import HTML
 
 
 class AntgenCompiler(QObject):
@@ -18,6 +18,7 @@ class AntgenCompiler(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._html_renderer = None
 
     @pyqtSlot(str, dict)
     def compile_pdf(self, project_id: str, antgen_payload: dict | None = None):
@@ -53,7 +54,8 @@ class AntgenCompiler(QObject):
         os.makedirs(base_folder, exist_ok=True)
         output_path = os.path.join(base_folder, "ANTGEN_compilado.pdf")
 
-        HTML(string=html_content, base_url=os.getcwd()).write_pdf(output_path)
+        html_renderer = self._ensure_weasyprint()
+        html_renderer(string=html_content, base_url=os.getcwd()).write_pdf(output_path)
         return output_path
 
     def _build_html(self, project_id: str, antgen: Dict[str, Any]) -> str:
@@ -173,3 +175,24 @@ class AntgenCompiler(QObject):
                 "</tr>"
             )
         return "".join(rendered)
+
+    def _ensure_weasyprint(self):
+        if self._html_renderer is not None:
+            return self._html_renderer
+
+        missing = []
+        for dependency in ("gobject-2.0-0", "glib-2.0-0", "pango-1.0-0"):
+            if ctypes.util.find_library(dependency) is None:
+                missing.append(dependency)
+
+        if missing:
+            formatted = ", ".join(missing)
+            raise RuntimeError(
+                "WeasyPrint no puede inicializarse. Falta(n) librería(s) del sistema: "
+                f"{formatted}. Revisa la guía de instalación para tu sistema."
+            )
+
+        from weasyprint import HTML
+
+        self._html_renderer = HTML
+        return self._html_renderer
