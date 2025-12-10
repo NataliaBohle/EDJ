@@ -142,13 +142,10 @@ class AntgenFetchWorker(QObject):
     @pyqtSlot()
     def run(self):
         self.log_signal.emit(f"🔎 Extracción en curso para ID {self.project_id}...")
-
         success = False
         result_data = {}
-
         try:
             antgen_data = _extract_antgen(self.project_id, log=self.log_signal.emit)
-
             if antgen_data.get("nombre_proyecto"):
                 _save_antgen_data(self.project_id, antgen_data, "verificado", log=self.log_signal.emit)
                 self.log_signal.emit(f"✅ Extracción de ANTGEN completada.")
@@ -172,6 +169,7 @@ class FetchAntgenController(QObject):
         super().__init__(parent)
         self.worker = None
         self.thread = None
+        self._finished_dispatched = False
 
     def start_extraction(self, project_id: str):
         if self.thread and self.thread.isRunning():
@@ -181,6 +179,7 @@ class FetchAntgenController(QObject):
         self.extraction_started.emit()
         self.thread = QThread()
         self.worker = AntgenFetchWorker(project_id)
+        self._finished_dispatched = False
 
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
@@ -188,6 +187,7 @@ class FetchAntgenController(QObject):
         # Conectar señales
         self.worker.log_signal.connect(self.log_requested.emit)
         self.worker.finished_signal.connect(self._on_finished)
+        self.thread.finished.connect(self._on_thread_finished)
 
         # Limpieza
         self.worker.finished_signal.connect(self.thread.quit)
@@ -203,4 +203,11 @@ class FetchAntgenController(QObject):
 
     @pyqtSlot(bool, dict)
     def _on_finished(self, success: bool, antgen_data: dict):
+        self._finished_dispatched = True
         self.extraction_finished.emit(success, antgen_data)
+
+    @pyqtSlot()
+    def _on_thread_finished(self):
+        if not self._finished_dispatched:
+            # Fallback para asegurar que la UI se reactive aunque el worker falle
+            self.extraction_finished.emit(False, {})

@@ -168,8 +168,8 @@ class AntGenPage(QWidget):
             self._display_extracted_data(antgen_data)
             self.fields_container.setVisible(True)
             self.placeholder_label.setVisible(False)
-
-            self.btn_fetch.setEnabled(False)
+            self.btn_fetch.setText("Volver a Extraer")
+            self.btn_fetch.setEnabled(True)
 
         else:
             self.status_bar.set_status("error")
