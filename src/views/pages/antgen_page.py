@@ -98,29 +98,46 @@ class AntGenPage(QWidget):
 
         # Mapeo de campos a instancias (usando FieldRow)
         self.row_nombre = FieldRow("Nombre del proyecto", is_multiline=False)
+        self.row_forma = FieldRow("Forma de presentación", is_multiline=False)
         self.row_tipo = FieldRow("Tipo de proyecto", is_multiline=False)
         self.row_monto = FieldRow("Monto de inversión", is_multiline=False)
         self.row_estado = FieldRow("Estado actual", is_multiline=False)
         self.row_encargado = FieldRow("Encargado/a", is_multiline=False)
         self.row_descripcion = FieldRow("Descripción", is_multiline=True, rich_editor=True)
+        self.row_objetivo = FieldRow("Objetivo del proyecto", is_multiline=True, rich_editor=True)
+        self.row_titular = FieldRow("Titular", is_multiline=True)
+        self.row_representante = FieldRow("Representante legal", is_multiline=True)
+        self.row_consultora = FieldRow("Consultora ambiental", is_multiline=True)
 
         self.field_map = {
             "nombre_proyecto": self.row_nombre,
+            "forma_presentacion": self.row_forma,
             "tipo_proyecto": self.row_tipo,
             "monto_inversion": self.row_monto,
             "estado_actual": self.row_estado,
             "encargado": self.row_encargado,
             "descripcion_proyecto": self.row_descripcion,
+            "objetivo_proyecto": self.row_objetivo,
+            "titular": self.row_titular,
+            "representante_legal": self.row_representante,
+            "consultora": self.row_consultora,
         }
 
         # Añadir a la tarjeta
         fields_layout.addWidget(QLabel("<b>DATOS PRINCIPALES</b>"))
         fields_layout.addWidget(self.row_nombre)
+        fields_layout.addWidget(self.row_forma)
         fields_layout.addWidget(self.row_tipo)
         fields_layout.addWidget(self.row_monto)
         fields_layout.addWidget(self.row_estado)
         fields_layout.addWidget(self.row_encargado)
         fields_layout.addWidget(self.row_descripcion)
+        fields_layout.addWidget(self.row_objetivo)
+
+        fields_layout.addWidget(QLabel("<b>DATOS DE CONTACTO</b>"))
+        fields_layout.addWidget(self.row_titular)
+        fields_layout.addWidget(self.row_representante)
+        fields_layout.addWidget(self.row_consultora)
 
         # PLACEHOLDER para cuando no hay datos
         self.placeholder_label = QLabel("Pulse 'Extraer Información' para iniciar la búsqueda en el SEIA.")
@@ -193,6 +210,16 @@ class AntGenPage(QWidget):
 
         for key, field_row in self.field_map.items():
             value = ant.get(key, "")
+
+            if isinstance(value, dict):
+                lines = []
+                if value.get("nombre"):
+                    lines.append(f"Nombre: {value['nombre']}")
+                if value.get("domicilio"):
+                    lines.append(f"Domicilio: {value['domicilio']}")
+                if value.get("email"):
+                    lines.append(f"Correo: {value['email']}")
+                value = "\n".join(lines)
 
             # Usar setPlainText para QPlainTextEdit, setHtml para QTextEdit y setText para QLineEdit
             if isinstance(field_row.editor, QPlainTextEdit):
