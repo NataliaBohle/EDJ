@@ -62,41 +62,39 @@ class MainWindow(QMainWindow):
         self.page_new_ebook = NewEbook()
         self.workspace_stack.addWidget(self.page_new_ebook)
 
-        # Index 2: Vista de Proyecto
+        # IVista de Proyecto
         self.page_project_view = ProjectView()
         self.workspace_stack.addWidget(self.page_project_view)
 
-        # Index 3: Continuar proyecto
+        # Continuar proyecto
         self.page_cont_ebook = ContEbook()
         self.workspace_stack.addWidget(self.page_cont_ebook)
 
-        # Index 4: ANTGEN
+        # ANTGEN
         # CORRECCIÓN DE NOMBRE: Usamos self.page_antgen para ser consistentes
-        self.page_antgen = AntGenPage()
-        self.workspace_stack.addWidget(self.page_antgen)
+        self.antgen_page = AntGenPage()
+        self.workspace_stack.addWidget(self.antgen_page)
 
         # --- 2. LOG SCREEN ---
         self.log_screen = LogScreen()
         self.v_splitter.addWidget(self.log_screen)
-
         self.h_splitter.addWidget(self.content_area)
 
         # --- 3. CONTROLADORES (¡IMPORTANTE: INICIALIZAR AQUÍ!) ---
-        # Deben crearse ANTES de hacer las conexiones
         self.fetch_controller = FetchExp(self)
         self.step_controller = StepController(self)
 
         # --- 4. CONEXIONES ---
         self.menu.btn_new.clicked.connect(self.on_new_expediente)  # Usar función wrapper
         self.menu.btn_continue.clicked.connect(self.show_continue_page)
-
         self.log_screen.visibility_changed.connect(self.update_log_splitter)
 
         # Conexiones entre páginas
         self.page_cont_ebook.project_selected.connect(self.show_project_view)
-
-        # AHORA SÍ FUNCIONA: step_controller ya existe
         self.page_project_view.action_requested.connect(self.step_controller.handle_activation)
+        self.page_project_view.log_requested.connect(self.log_screen.add_log)
+        self.antgen_page.log_requested.connect(self.log_screen.add_log)
+
 
         # --- 5. TAMAÑOS INICIALES ---
         self.h_splitter.setCollapsible(0, False)
@@ -133,8 +131,8 @@ class MainWindow(QMainWindow):
     def show_antgen_page(self, project_id):
         self.log_screen.add_log(f"Entrando a Antecedentes Generales: {project_id}")
         # CORREGIDO: Usamos self.page_antgen
-        self.page_antgen.load_project(project_id)
-        self.workspace_stack.setCurrentWidget(self.page_antgen)
+        self.antgen_page.load_project(project_id)
+        self.workspace_stack.setCurrentWidget(self.antgen_page)
 
     def on_continue_expediente(self):
         self.log_screen.add_log("Retomando expediente existente...")

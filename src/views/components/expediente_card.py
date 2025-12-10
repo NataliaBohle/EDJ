@@ -9,6 +9,8 @@ class ExpedienteCard(QFrame):
     step_selected = pyqtSignal(str, int)
     # Señal cuando hacen clic en el botón (Código, Paso Actual) -> Para abrir la herramienta
     action_clicked = pyqtSignal(str, int)
+    # --- NUEVA SEÑAL: Reporta el cambio de estado global (código, nuevo_status) ---
+    status_updated = pyqtSignal(str, str)
 
     def __init__(self, title="Expediente", code="ANTGEN", status="detectado", steps=None):
         super().__init__()
@@ -60,6 +62,10 @@ class ExpedienteCard(QFrame):
         self.status_selector = MiniStatusBar()
         self.status_selector.set_status(status)
         self.status_selector.setFixedWidth(110)
+
+        # --- CONEXIÓN CLAVE: Conectar el desplegable a la función de re-emisión ---
+        self.status_selector.status_changed.connect(self._on_status_change)
+
         controls_layout.addWidget(self.status_selector)
 
         # Botón de Acción
@@ -77,6 +83,15 @@ class ExpedienteCard(QFrame):
         controls_layout.addWidget(self.btn_action)
 
         layout.addLayout(controls_layout)
+
+    # --- NUEVO MÉTODO DE RE-EMISIÓN ---
+    def _on_status_change(self, new_status: str):
+        """Captura el cambio del MiniStatusBar y lo re-emite con el código."""
+        # 1. Avisamos al ProjectView para que guarde en el JSON
+        self.status_updated.emit(self.code, new_status)
+
+        # 2. Actualizamos la visualización de la tarjeta (botón y timeline)
+        self.update_progress(self.current_step_index, new_status)
 
     def _on_timeline_click(self, step_index):
         """Reenvía la señal de la línea de tiempo hacia afuera."""
@@ -104,7 +119,6 @@ class ExpedienteCard(QFrame):
             self.btn_action.setText("Activar")
 
         # 3. Cambio de ESTILO usando Propiedades Dinámicas
-        # Esto le dice al QSS: "Aplica el bloque [status='...']"
         self.btn_action.setProperty("status", step_status)
 
         # Forzamos a Qt a repintar el estilo inmediatamente
