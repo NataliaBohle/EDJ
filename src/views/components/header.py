@@ -7,13 +7,13 @@ class Header(QFrame):
         self.setObjectName("Header")
 
         # Configurar altura fija (como preguntaste antes)
-        self.setFixedHeight(90)
+        self.setFixedHeight(60)
 
         layout = QHBoxLayout()
         # Quitamos los márgenes para que el color llegue al borde
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(60, 10, 10, 10)
         self.setLayout(layout)
 
-        title_label = QLabel("EDJ App")
+        title_label = QLabel("Extractor de Expedientes SEIA")
         title_label.setObjectName("HeaderTitle")
         layout.addWidget(title_label)

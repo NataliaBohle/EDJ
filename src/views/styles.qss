@@ -6,14 +6,38 @@
     border-bottom: 2px solid #1a252f;
 
     /* --- NUEVO: Configurar altura --- */
-    min-height: 90px;
-    max-height: 90px;
+    min-height: 60px;
+    max-height: 60px;
 }
 
 /* Estilo para el texto del título */
 #HeaderTitle {
-    color: #ecf0f1; /* Texto blanco/gris claro */
-    font-size: 18px;
-    font-weight: bold;
-    font-family: "Segoe UI", sans-serif;
-}/* Estilos globales */
+    color: #ecf0f1;
+
+    /* Aumentamos el tamaño para que luzca más */
+    font-size: 24px;
+
+    /* Probamos una fuente diferente.
+       El sistema usará la primera que encuentre de la lista. */
+    font-family: "Open Sans";
+
+    /* Opciones de estilo extra */
+    font-weight: bold;      /* Negrita */
+    letter-spacing: 1px;    /* Espacio entre letras (le da un toque elegante) */
+}
+
+/* Estilo para el texto del título */
+#HeaderSubTitle {
+    color: #99CCFF;
+
+    /* Aumentamos el tamaño para que luzca más */
+    font-size: 12px;
+
+    /* Probamos una fuente diferente.
+       El sistema usará la primera que encuentre de la lista. */
+    font-family: "Open Sans";
+
+    /* Opciones de estilo extra */
+    font-weight: bold;      /* Negrita */
+    letter-spacing: 1px;    /* Espacio entre letras (le da un toque elegante) */
+}
