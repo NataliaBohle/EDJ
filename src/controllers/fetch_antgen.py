@@ -143,16 +143,24 @@ class AntgenFetchWorker(QObject):
     def run(self):
         self.log_signal.emit(f"🔎 Extracción en curso para ID {self.project_id}...")
 
-        antgen_data = _extract_antgen(self.project_id, log=self.log_signal.emit)
+        success = False
+        result_data = {}
 
-        if antgen_data.get("nombre_proyecto"):
-            _save_antgen_data(self.project_id, antgen_data, "verificado", log=self.log_signal.emit)
-            self.log_signal.emit(f"✅ Extracción de ANTGEN completada.")
-            self.finished_signal.emit(True, antgen_data)
-        else:
-            _save_antgen_data(self.project_id, {}, "error", log=self.log_signal.emit)
-            self.log_signal.emit(f"❌ Extracción fallida. No se encontraron datos principales.")
-            self.finished_signal.emit(False, {})
+        try:
+            antgen_data = _extract_antgen(self.project_id, log=self.log_signal.emit)
+
+            if antgen_data.get("nombre_proyecto"):
+                _save_antgen_data(self.project_id, antgen_data, "verificado", log=self.log_signal.emit)
+                self.log_signal.emit(f"✅ Extracción de ANTGEN completada.")
+                success = True
+                result_data = antgen_data
+            else:
+                _save_antgen_data(self.project_id, {}, "error", log=self.log_signal.emit)
+                self.log_signal.emit(f"❌ Extracción fallida. No se encontraron datos principales.")
+        except Exception as e:
+            self.log_signal.emit(f"❌ Error inesperado durante extracción: {e}")
+
+        self.finished_signal.emit(success, result_data)
 
 
 class FetchAntgenController(QObject):

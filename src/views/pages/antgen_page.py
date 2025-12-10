@@ -159,7 +159,6 @@ class AntGenPage(QWidget):
 
     @pyqtSlot(bool, dict)
     def _on_extraction_finished(self, success: bool, antgen_data: dict):
-        self.btn_fetch.setText("Extraer Información")
         self.progress_bar.setVisible(False)
 
         if success:
@@ -179,7 +178,12 @@ class AntGenPage(QWidget):
 
             self.placeholder_label.setVisible(True)
             self.fields_container.setVisible(False)
+            self.btn_fetch.setText("Volver a Extraer")
             self.btn_fetch.setEnabled(True)
+            if self.fields_container.isVisible():
+                self.btn_fetch.setText("Volver a Extraer")
+            else:
+                self.btn_fetch.setText("Extraer Información")
 
     def _display_extracted_data(self, antgen_data: dict):
         ant = antgen_data.get("ANTGEN") if isinstance(antgen_data, dict) else None
@@ -238,7 +242,8 @@ class AntGenPage(QWidget):
             self.status_bar.set_status(status)
 
             # Control del botón: Deshabilitar si ya existen datos
-            self.btn_fetch.setEnabled(not data_exists)
+            self.btn_fetch.setText("Volver a Extraer" if data_exists else "Extraer Información")
+            self.btn_fetch.setEnabled(True)
             self.is_loading = False
 
     def save_status_change(self, new_status):
