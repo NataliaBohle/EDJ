@@ -2,7 +2,7 @@ import os
 import json
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QLabel, QHBoxLayout, QPushButton, QMessageBox, \
     QProgressBar, QFrame, QLineEdit, \
-    QPlainTextEdit
+    QPlainTextEdit, QSizePolicy, QTextEdit
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
 from src.views.components.chapter import Chapter
 from src.views.components.status_bar import StatusBar
@@ -86,11 +86,12 @@ class AntGenPage(QWidget):
         self.content_layout = QVBoxLayout(self.content_widget)
         self.content_layout.setContentsMargins(40, 30, 40, 30)
         self.content_layout.setSpacing(15)
-        self.content_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+        self.content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # --- DEFINICIÓN DE LOS CAMPOS EDITABLES ---
         self.fields_container = QFrame()
         self.fields_container.setObjectName("DataCardFrame")
+        self.fields_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         fields_layout = QVBoxLayout(self.fields_container)
         fields_layout.setContentsMargins(30, 20, 30, 20)
         fields_layout.setSpacing(10)
@@ -101,7 +102,7 @@ class AntGenPage(QWidget):
         self.row_monto = FieldRow("Monto de inversión", is_multiline=False)
         self.row_estado = FieldRow("Estado actual", is_multiline=False)
         self.row_encargado = FieldRow("Encargado/a", is_multiline=False)
-        self.row_descripcion = FieldRow("Descripción", is_multiline=True)
+        self.row_descripcion = FieldRow("Descripción", is_multiline=True, rich_editor=True)
 
         self.field_map = {
             "nombre_proyecto": self.row_nombre,
@@ -193,9 +194,16 @@ class AntGenPage(QWidget):
         for key, field_row in self.field_map.items():
             value = ant.get(key, "")
 
-            # Usar setPlainText para QPlainTextEdit y setText para QLineEdit
+            # Usar setPlainText para QPlainTextEdit, setHtml para QTextEdit y setText para QLineEdit
             if isinstance(field_row.editor, QPlainTextEdit):
                 field_row.editor.setPlainText(str(value))
+            elif isinstance(field_row.editor, QTextEdit):
+                # Si el texto parece HTML, lo aplicamos como tal; de lo contrario, lo tratamos como texto plano
+                text_value = str(value)
+                if "<" in text_value and ">" in text_value:
+                    field_row.editor.setHtml(text_value)
+                else:
+                    field_row.editor.setPlainText(text_value)
             elif isinstance(field_row.editor, QLineEdit):
                 field_row.editor.setText(str(value))
 

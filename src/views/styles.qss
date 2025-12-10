@@ -380,8 +380,6 @@ QSplitter::handle:hover {
     border: 1px solid #dcdcdc;
     border-radius: 6px;
     padding: 15px;
-    width: 800px; /* Ancho fijo para centrado y mejor lectura */
-    max-width: 900px;
 }
 
 #FieldRowLabel {
@@ -397,4 +395,18 @@ QSplitter::handle:hover {
 }
 #FieldRow QPlainTextEdit {
     min-height: 80px;
+}
+
+#FieldRowRichButton {
+    padding: 4px 10px;
+    border-radius: 4px;
+    background-color: #ecf0f1;
+    border: 1px solid #bdc3c7;
+    color: #34495e;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+#FieldRowRichButton:hover {
+    background-color: #ffffff;
 }
