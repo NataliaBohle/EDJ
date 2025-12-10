@@ -9,7 +9,8 @@ from src.views.main_window import MainWindow
 
 def load_styles(app):
     style_path = os.path.join(os.path.dirname(__file__), 'src', 'views', 'styles.qss')
-    with open(style_path, 'r') as f:
+    # --- CAMBIO AQUÍ: Agregamos encoding='utf-8' ---
+    with open(style_path, 'r', encoding='utf-8') as f:
         contenido = f.read()
         app.setStyleSheet(contenido)
 

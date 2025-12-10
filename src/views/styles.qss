@@ -50,3 +50,70 @@
 #BtnContinue:hover {
     background-color: #3498db;
 }
+/* --- SPLITTER (Divisor) --- */
+
+QSplitter::handle {
+    background-color: #bdc3c7; /* Color gris suave */
+    height: 4px; /* Altura de la barra de agarre */
+}
+
+QSplitter::handle:hover {
+    background-color: #3498db; /* Azul al pasar el mouse */
+}
+
+/* Opcional: Dale un color de fondo al área de trabajo vacía para verla mejor */
+#Workspace {
+    background-color: #ffffff;
+}
+/* ESTILOS DE LOG SCREEN */
+#LogScreen {
+    background-color: transparent;
+}
+
+/* Barra superior del log */
+#LogControlBar {
+    background-color: #34495e; /* Azul grisáceo oscuro */
+    border-top: 1px solid #2c3e50;
+}
+
+#LogTitle {
+    color: #ecf0f1;
+    font-weight: bold;
+    font-family: "Segoe UI", sans-serif;
+    font-size: 13px;
+}
+
+/* Botones del Log */
+#BtnLogExport {
+    background-color: transparent;
+    color: #bdc3c7;
+    border: 1px solid #7f8c8d;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+#BtnLogExport:hover {
+    background-color: #ecf0f1;
+    color: #2c3e50;
+}
+
+#BtnLogToggle {
+    background-color: transparent;
+    color: white;
+    border: none;
+    font-weight: bold;
+}
+#BtnLogToggle:hover {
+    background-color: #ffffff30; /* Blanco semitransparente */
+    border-radius: 3px;
+}
+
+/* Área de texto tipo consola */
+#LogArea {
+    background-color: #2c3e50; /* Fondo oscuro */
+    color: #2ecc71; /* Texto verde terminal */
+    border: none;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 12px;
+    padding: 5px;
+}
