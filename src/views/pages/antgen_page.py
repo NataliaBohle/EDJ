@@ -9,6 +9,7 @@ from src.views.components.status_bar import StatusBar
 from src.views.components.command_bar import CommandBar
 from src.controllers.fetch_antgen import FetchAntgenController
 from src.views.components.field_row import FieldRow
+from src.views.components.results_table import EditableTableCard
 
 
 class AntGenPage(QWidget):
@@ -143,6 +144,35 @@ class AntGenPage(QWidget):
         fields_layout.addWidget(self.row_representante)
         fields_layout.addWidget(self.row_consultora)
 
+        # Tablas editables para PAS y Estados
+        self.table_pas = EditableTableCard(
+            "Permisos Ambientales Sectoriales (PAS)",
+            columns=[
+                ("articulo", "Artículo"),
+                ("nombre", "Nombre"),
+                ("tipo", "Tipo"),
+                ("certificado", "Certificado"),
+            ],
+        )
+        self.table_pas.status_changed.connect(self._on_table_status_changed)
+        self.table_pas.data_changed.connect(self._on_table_content_changed)
+
+        self.table_estados = EditableTableCard(
+            "Registro de Estados",
+            columns=[
+                ("estado", "Estado"),
+                ("documento", "Documento"),
+                ("numero", "Número"),
+                ("fecha", "Fecha"),
+                ("autor", "Autor"),
+            ],
+        )
+        self.table_estados.status_changed.connect(self._on_table_status_changed)
+        self.table_estados.data_changed.connect(self._on_table_content_changed)
+
+        fields_layout.addWidget(self.table_pas)
+        fields_layout.addWidget(self.table_estados)
+
         # PLACEHOLDER para cuando no hay datos
         self.placeholder_label = QLabel("Pulse 'Extraer Información' para iniciar la búsqueda en el SEIA.")
         self.placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -228,17 +258,26 @@ class AntGenPage(QWidget):
 
             if isinstance(field_row.editor, QPlainTextEdit):
                 field_row.editor.setPlainText(str(value))
+                field_row._update_editor_height()
             elif isinstance(field_row.editor, QTextEdit):
                 text_value = str(value)
                 if "<" in text_value and ">" in text_value:
                     field_row.editor.setHtml(text_value)
                 else:
                     field_row.editor.setPlainText(text_value)
+                field_row._update_editor_height()
             elif isinstance(field_row.editor, QLineEdit):
                 field_row.editor.setText(str(value))
 
             status_value = self._normalize_field_status(field_statuses.get(key)) or "detectado"
             field_row.status_bar.set_status(status_value)
+
+        # Tablas: PAS y Registro de Estados
+        self.table_pas.set_data(ant.get("permisos_ambientales", []))
+        self.table_pas.set_status(self._normalize_field_status(field_statuses.get("permisos_ambientales")) or "detectado")
+
+        self.table_estados.set_data(ant.get("registro_estados", []))
+        self.table_estados.set_status(self._normalize_field_status(field_statuses.get("registro_estados")) or "detectado")
 
         # Aquí sí llamas al método de la clase
         self._update_global_status_from_fields()
@@ -258,12 +297,24 @@ class AntGenPage(QWidget):
         """Persiste los valores editados de los campos en el JSON del proyecto."""
         self._persist_field_values()
 
+    def _on_table_status_changed(self, _status: str):
+        self._update_global_status_from_fields()
+        self._persist_field_statuses()
+
+    def _on_table_content_changed(self):
+        self._persist_field_values()
+
     def _update_global_status_from_fields(self):
         """Recalcula el estado global de ANTGEN a partir de los campos individuales."""
         statuses = [
             self._normalize_field_status(row.status_bar.get_status())
             for row in self.field_map.values()
         ]
+
+        statuses.extend([
+            self._normalize_field_status(self.table_pas.get_status()),
+            self._normalize_field_status(self.table_estados.get_status()),
+        ])
 
         all_validated = statuses and all(status == "verificado" for status in statuses)
         target_status = "verificado" if all_validated else "edicion"
@@ -353,6 +404,9 @@ class AntGenPage(QWidget):
             for key, row in self.field_map.items()
         }
 
+        statuses_payload["permisos_ambientales"] = self._normalize_field_status(self.table_pas.get_status()) or "detectado"
+        statuses_payload["registro_estados"] = self._normalize_field_status(self.table_estados.get_status()) or "detectado"
+
         try:
             base_folder = os.path.join(os.getcwd(), "Ebook", project_id)
             json_path = os.path.join(base_folder, f"{project_id}_fetch.json")
@@ -389,6 +443,9 @@ class AntGenPage(QWidget):
             key: row.get_value()
             for key, row in self.field_map.items()
         }
+
+        values_payload["permisos_ambientales"] = self.table_pas.get_data()
+        values_payload["registro_estados"] = self.table_estados.get_data()
 
         try:
             base_folder = os.path.join(os.getcwd(), "Ebook", project_id)

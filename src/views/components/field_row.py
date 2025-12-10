@@ -47,6 +47,7 @@ class FieldRow(QFrame):
 
         self.editor.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._connect_change_signal()
+        self._update_editor_height()
         editor_layout.addWidget(self.editor)
 
         if is_multiline and rich_editor:
@@ -71,7 +72,7 @@ class FieldRow(QFrame):
         if isinstance(self.editor, QLineEdit):
             self.editor.textChanged.connect(self.content_changed.emit)
         else:
-            self.editor.textChanged.connect(self.content_changed.emit)
+            self.editor.textChanged.connect(self._on_multiline_changed)
 
     def get_value(self):
         if isinstance(self.editor, QTextEdit):
@@ -91,3 +92,31 @@ class FieldRow(QFrame):
             if dialog.was_validated():
                 self.status_bar.set_status("verificado")
                 self.status_changed.emit("verificado")
+
+    def _on_multiline_changed(self):
+        self._update_editor_height()
+        self.content_changed.emit()
+
+    def _update_editor_height(self):
+        if not isinstance(self.editor, (QPlainTextEdit, QTextEdit)):
+            return
+
+        document = self.editor.document()
+        document.setTextWidth(self.editor.viewport().width())
+        contents_height = int(document.size().height())
+
+        margins = self.editor.contentsMargins()
+        frame = int(self.editor.frameWidth() * 2)
+        min_height = 80 if isinstance(self.editor, QTextEdit) else 60
+
+        line_height = self.editor.fontMetrics().lineSpacing()
+        max_lines = 10
+        max_allowed_height = line_height * max_lines + margins.top() + margins.bottom() + frame + 6
+
+        target_height = max(min_height, min(max_allowed_height, contents_height + margins.top() + margins.bottom() + frame + 6))
+        self.editor.setMinimumHeight(target_height)
+        self.editor.setMaximumHeight(target_height)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_editor_height()
