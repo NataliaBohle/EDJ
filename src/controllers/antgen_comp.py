@@ -1,4 +1,3 @@
-import ctypes.util
 import json
 import os
 from datetime import datetime
@@ -6,6 +5,7 @@ from html import escape
 from string import Template
 from typing import Any, Dict, List
 
+import fitz  # PyMuPDF
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 
@@ -18,7 +18,7 @@ class AntgenCompiler(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._html_renderer = None
+        self._page_size = (612, 936)  # 8.5in x 13in at 72 dpi (Legal chileno)
 
     @pyqtSlot(str, dict)
     def compile_pdf(self, project_id: str, antgen_payload: dict | None = None):
@@ -29,8 +29,8 @@ class AntgenCompiler(QObject):
             if not payload:
                 raise ValueError("No hay datos de Antecedentes Generales para compilar.")
 
-            html_content = self._build_html(project_id, payload)
-            output_path = self._write_pdf(project_id, html_content)
+            sections = self._build_sections(project_id, payload)
+            output_path = self._write_pdf(project_id, sections)
             self.log_requested.emit(f"✅ PDF generado: {output_path}")
             self.compilation_finished.emit(True, output_path)
         except Exception as exc:  # noqa: BLE001
@@ -49,16 +49,23 @@ class AntgenCompiler(QObject):
 
         return data.get("expedientes", {}).get("ANTGEN", {}).get("ANTGEN_DATA", {})
 
-    def _write_pdf(self, project_id: str, html_content: str) -> str:
+    def _write_pdf(self, project_id: str, sections: Dict[str, str]) -> str:
         base_folder = os.path.join(os.getcwd(), "Ebook", project_id)
         os.makedirs(base_folder, exist_ok=True)
         output_path = os.path.join(base_folder, "ANTGEN_compilado.pdf")
 
-        html_renderer = self._ensure_weasyprint()
-        html_renderer(string=html_content, base_url=os.getcwd()).write_pdf(output_path)
+        doc = fitz.open()
+        rect = fitz.Rect(36, 36, self._page_size[0] - 36, self._page_size[1] - 36)
+
+        for key in ("cover", "body"):
+            page = doc.new_page(width=self._page_size[0], height=self._page_size[1])
+            page.insert_htmlbox(rect, sections[key], css=sections["styles"])
+
+        doc.save(output_path)
+        doc.close()
         return output_path
 
-    def _build_html(self, project_id: str, antgen: Dict[str, Any]) -> str:
+    def _build_sections(self, project_id: str, antgen: Dict[str, Any]) -> Dict[str, str]:
         assets_path = os.path.join(os.getcwd(), "assets", "templates")
         styles_path = os.path.join(assets_path, "pdf_styles.css")
         cover_path = os.path.join(assets_path, "cover_antgen.html")
@@ -75,8 +82,8 @@ class AntgenCompiler(QObject):
         pas_rows = self._render_pas_table(antgen.get("permisos_ambientales", []))
         estados_rows = self._render_estados_table(antgen.get("registro_estados", []))
 
-        cover_html = cover_template.safe_substitute(info)
-        body_html = body_template.safe_substitute({
+        cover_html = self._wrap_html(cover_template.safe_substitute(info))
+        body_html = self._wrap_html(body_template.safe_substitute({
             "project_name": escape(info.get("project_name", "")),
             "project_id": escape(info.get("project_id", "")),
             "tipo_proyecto": escape(antgen.get("tipo_proyecto", "No indicado")),
@@ -92,20 +99,22 @@ class AntgenCompiler(QObject):
             "permisos_rows": pas_rows,
             "registro_rows": estados_rows,
             "timestamp": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        })
+        }))
 
+        return {
+            "styles": styles,
+            "cover": cover_html,
+            "body": body_html,
+        }
+
+    def _wrap_html(self, content: str) -> str:
         return (
-            "<html><head><meta charset='utf-8'>"
-            f"<style>{styles}</style>"
-            "</head><body class='pdf-document'>"
-            f"{cover_html}"
-            "<div class='page-break'></div>"
-            f"{body_html}"
-            "</body></html>"
+            "<html><head><meta charset='utf-8'></head>"
+            "<body class='pdf-document'>" + content + "</body></html>"
         )
 
     def _extract_basic_info(self, project_id: str, antgen: Dict[str, Any]) -> Dict[str, str]:
-        logo_path = os.path.join("assets", "images", "Logo.png")
+        logo_path = os.path.join(os.getcwd(), "assets", "images", "Logo.png")
         return {
             "project_name": antgen.get("nombre_proyecto", "Proyecto sin título"),
             "forma_ingreso": antgen.get("forma_presentacion", "No informado"),
@@ -176,23 +185,3 @@ class AntgenCompiler(QObject):
             )
         return "".join(rendered)
 
-    def _ensure_weasyprint(self):
-        if self._html_renderer is not None:
-            return self._html_renderer
-
-        missing = []
-        for dependency in ("gobject-2.0-0", "glib-2.0-0", "pango-1.0-0"):
-            if ctypes.util.find_library(dependency) is None:
-                missing.append(dependency)
-
-        if missing:
-            formatted = ", ".join(missing)
-            raise RuntimeError(
-                "WeasyPrint no puede inicializarse. Falta(n) librería(s) del sistema: "
-                f"{formatted}. Revisa la guía de instalación para tu sistema."
-            )
-
-        from weasyprint import HTML
-
-        self._html_renderer = HTML
-        return self._html_renderer
