@@ -108,8 +108,6 @@ class ProjectView(QWidget):
 
     def save_overall_status_change(self, project_id, code, new_status):
         """Guarda el estado global (MiniStatusBar) de un expediente en el JSON."""
-        # print(f"Guardando estado global: {project_id} -> {code} -> Status {new_status}") # Ya no es necesario el print
-
         base_folder = os.path.join(os.getcwd(), "Ebook", project_id)
         json_path = os.path.join(base_folder, f"{project_id}_fetch.json")
 

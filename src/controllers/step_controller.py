@@ -19,7 +19,6 @@ class StepController(QObject):
         accion = None
 
         if code == "ANTGEN":
-            # Si el usuario quiere descargar (paso 1) o simplemente ver (paso 0)
             if step_index <= 1:
                 self.main_window.show_antgen_page(project_id)
                 return

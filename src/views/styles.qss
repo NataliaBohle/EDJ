@@ -373,3 +373,28 @@ QSplitter::handle:hover {
 #StatusEditing:checked { background-color: #f39c12; color: white; border-color: #f39c12; }
 #StatusVerified:checked { background-color: #27ae60; color: white; border-color: #27ae60; }
 #StatusError:checked { background-color: #c0392b; color: white; border-color: #c0392b; }
+
+/* FIELDS DE ANTGEN */
+#DataCardFrame {
+    background-color: #f7f7f7; /* Fondo ligeramente gris para la tarjeta de datos */
+    border: 1px solid #dcdcdc;
+    border-radius: 6px;
+    padding: 15px;
+    width: 800px; /* Ancho fijo para centrado y mejor lectura */
+    max-width: 900px;
+}
+
+#FieldRowLabel {
+    color: #34495e;
+    font-weight: 500;
+}
+
+#FieldRow QLineEdit, #FieldRow QPlainTextEdit {
+    padding: 5px;
+    border: 1px solid #bdc3c7;
+    border-radius: 3px;
+    background-color: white;
+}
+#FieldRow QPlainTextEdit {
+    min-height: 80px;
+}
