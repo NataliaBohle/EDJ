@@ -98,8 +98,19 @@ class MainWindow(QMainWindow):
 
     def show_project_view(self, project_id):
         """Cambia a la pantalla de vista de proyecto y carga datos."""
+
+        # 1. Mensaje en el Log (¡Lo que faltaba!)
+        self.log_screen.add_log(f"📂 Abriendo proyecto existente: {project_id}")
+
+        # 2. Cargar datos en la vista
         self.page_project_view.load_project(project_id)
+
+        # 3. Cambiar la página visible
         self.workspace_stack.setCurrentWidget(self.page_project_view)
+
+        # 4. Actualizar Sidebar
+        self.sidebar.clear()
+        self.sidebar.add_option(f"Proyecto Activo\nID {project_id}")
 
     def show_continue_page(self):
         self.log_screen.add_log("Consultando proyectos guardados...")
