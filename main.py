@@ -5,7 +5,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from PyQt6.QtWidgets import QApplication
-from src.views.main_window import MainWindow
+from src.views.pages.main_window import MainWindow
 
 def load_styles(app):
     style_path = os.path.join(os.path.dirname(__file__), 'src', 'views', 'styles.qss')

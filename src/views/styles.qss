@@ -32,7 +32,7 @@
 #Menu QPushButton {
     padding: 8px 20px;
     border-radius: 4px; /* Bordes redondeados */
-    font-family: "Segoe UI", sans-serif;
+    font-family: "Open Sans", sans-serif;
     font-size: 14px;
     font-weight: bold;
     color: white; /* Texto blanco */
@@ -79,7 +79,7 @@ QSplitter::handle:hover {
 #LogTitle {
     color: #ecf0f1;
     font-weight: bold;
-    font-family: "Segoe UI", sans-serif;
+    font-family: "Open Sans", sans-serif;
     font-size: 13px;
 }
 
@@ -122,7 +122,7 @@ QSplitter::handle:hover {
 #Sidebar {
     background-color: transparent;
     border-right: 1px solid #dcdcdc;
-    min-width: 200px;
+    min-width: 50px;
 }
 
 #SidebarTitle {
@@ -148,11 +148,57 @@ QSplitter::handle:hover {
     padding: 8px 15px;
     border: none;
     border-radius: 6px;
-    font-family: "Segoe UI", sans-serif;
+    font-family: "Open Sans", sans-serif;
     font-size: 14px;
 }
 
 #SidebarButton:hover {
     background-color: #e5e5e5;
     color: #000000;
+}
+
+/* --- COMPONENTE CHAPTER (Tarjeta de Título) --- */
+#Chapter {
+    background-color: #ecf0f1; /* Gris claro de fondo */
+    border: 2px solid #bdc3c7; /* Borde Azul Grisáceo */
+    border-radius: 5px; /* Bordes redondeados */
+}
+
+#ChapterTitle {
+    color: #000000; /* Letras negras */
+    font-size: 12px;
+    font-weight: bold;
+    font-family: "Open Sans", sans-serif;
+}
+
+/* --- COMPONENTE NEW ID (Formulario) --- */
+#NewIdLabel {
+    color: #2c3e50;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+#NewIdInput {
+    padding: 8px;
+    border: 1px solid #bdc3c7;
+    border-radius: 4px;
+    font-size: 14px;
+    background-color: white;
+}
+
+#NewIdButton {
+    background-color: #2980b9; /* Azul del tema */
+    color: white;
+    padding: 10px;
+    border-radius: 4px;
+    font-weight: bold;
+    border: none;
+}
+#NewIdButton:hover {
+    background-color: #3498db;
+}
+
+/* Fondo de la página */
+#NewEbookPage {
+    background-color: transparent;
 }
