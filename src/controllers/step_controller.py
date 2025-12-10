@@ -14,18 +14,17 @@ class StepController(QObject):
         self.log.add_log(f"⚡ Solicitud: {code} -> Paso Índice {step_index}")
 
         # LÓGICA DE MAPEO
-        # Definimos qué significa cada índice para cada tipo
-
         accion = None
 
         if code == "ANTGEN":
-            if step_index <= 1:
-                self.main_window.show_antgen_page(project_id)
-                return
-            elif step_index == 2:
-                accion = "COMPILAR"
+            # CORRECCIÓN: Para ANTGEN, siempre queremos abrir la página de detalles,
+            # incluso si el paso es "Compilar" (2) o "Listo".
+            # La compilación real se hace desde dentro de esa página.
+            self.main_window.show_antgen_page(project_id)
+            return
+
         else:
-            # Pasos Default: [0:Det, 1:Desc, 2:Conv, 3:Form, 4:Ind, 5:Comp]
+            # Lógica para otros expedientes futuros (EXEVA, EXPAC, etc.)
             if step_index == 1:
                 accion = "DESCARGAR"
             elif step_index == 2:
@@ -37,7 +36,7 @@ class StepController(QObject):
             elif step_index == 5:
                 accion = "COMPILAR"
 
-        # EJECUCIÓN
+        # EJECUCIÓN (Solo para módulos que no redirigen a una página específica aún)
         if accion == "DESCARGAR":
             self.log.add_log(f"--> Iniciando módulo de DESCARGA para {code}...")
             # self.main_window.show_download_view(project_id, code)
@@ -55,4 +54,5 @@ class StepController(QObject):
             self.log.add_log(f"--> Iniciando COMPILADOR DE TOMOS para {code}...")
 
         else:
-            self.log.add_log(f"⚠️ No hay acción configurada para el paso {step_index} en {code}.")
+            if code != "ANTGEN": # Evitar log duplicado si ya entramos al if de arriba
+                self.log.add_log(f"⚠️ No hay acción configurada para el paso {step_index} en {code}.")

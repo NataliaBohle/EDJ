@@ -370,6 +370,20 @@ QSplitter::handle:hover {
     background-color: #2ecc71;
 }
 
+/* Botón de Carpeta (Gris Utilidad) */
+#BtnActionFolder {
+    background-color: #95a5a6;
+    color: white;
+    border: none;
+    padding: 8px 20px;
+    border-radius: 4px;
+    font-weight: bold;
+    font-size: 13px;
+}
+#BtnActionFolder:hover {
+    background-color: #7f8c8d; /* Gris más oscuro al pasar el mouse */
+}
+
 
 
 /* --- STATUS BAR (Botones de estado) --- */

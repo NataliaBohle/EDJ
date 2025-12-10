@@ -16,3 +16,4 @@ dist/
 # IDE specific settings
 .idea/
 .vscode/
+/Ebook/
