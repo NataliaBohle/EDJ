@@ -1,19 +1,35 @@
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QLabel
+
+
+# Usamos QFrame porque ya sabe obedecer a los estilos (CSS) nativamente
 class Header(QFrame):
     def __init__(self):
         super().__init__()
-        # Asignamos un ID para usarlo en el QSS
         self.setObjectName("Header")
-
-        # Configurar altura fija (como preguntaste antes)
         self.setFixedHeight(60)
 
-        layout = QHBoxLayout()
-        # Quitamos los márgenes para que el color llegue al borde
-        layout.setContentsMargins(60, 10, 10, 10)
-        self.setLayout(layout)
+        # Layout Principal (Horizontal)
+        main_layout = QHBoxLayout()
+        main_layout.setContentsMargins(10, 5, 10, 5)
+        self.setLayout(main_layout)
 
-        title_label = QLabel("Extractor de Expedientes SEIA")
-        title_label.setObjectName("HeaderTitle")
-        layout.addWidget(title_label)
+        # --- CAJITA VERTICAL PARA TEXTOS ---
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(0)  # Sin separación extra
+        text_layout.setContentsMargins(90, 0, 0, 0)  # Sin márgenes internos
+
+        # Título
+        title = QLabel("Extractor de Expedientes SEIA")
+        title.setObjectName("HeaderTitle")
+        text_layout.addWidget(title)
+
+        # Subtítulo
+        subtitle = QLabel("Procesos v.5 - UI v.1")
+        subtitle.setObjectName("HeaderSubTitle")
+        text_layout.addWidget(subtitle)
+
+        # Agregamos los textos al layout principal
+        main_layout.addLayout(text_layout)
+
+        # Espacio flexible para empujar todo a la izquierda
+        main_layout.addStretch()

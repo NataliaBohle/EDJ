@@ -1,43 +1,52 @@
-/* src/views/styles.qss */
-
-/* Estilo para el contenedor del Header */
+/* ESTILOS DE HEADER */
 #Header {
     background-color: #2c3e50;
     border-bottom: 2px solid #1a252f;
-
-    /* --- NUEVO: Configurar altura --- */
     min-height: 60px;
     max-height: 60px;
 }
 
-/* Estilo para el texto del título */
 #HeaderTitle {
     color: #ecf0f1;
-
-    /* Aumentamos el tamaño para que luzca más */
     font-size: 24px;
-
-    /* Probamos una fuente diferente.
-       El sistema usará la primera que encuentre de la lista. */
     font-family: "Open Sans";
-
-    /* Opciones de estilo extra */
-    font-weight: bold;      /* Negrita */
-    letter-spacing: 1px;    /* Espacio entre letras (le da un toque elegante) */
+    font-weight: bold;
+    letter-spacing: 1px;
 }
 
-/* Estilo para el texto del título */
 #HeaderSubTitle {
     color: #99CCFF;
-
-    /* Aumentamos el tamaño para que luzca más */
     font-size: 12px;
-
-    /* Probamos una fuente diferente.
-       El sistema usará la primera que encuentre de la lista. */
     font-family: "Open Sans";
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+/* ESTILOS DE MENU */
+/* --- Menu --- */
+#Menu {
+    background-color: #ecf0f1; /* Un gris muy suave */
+    border-bottom: 1px solid #bdc3c7;
+}
 
-    /* Opciones de estilo extra */
-    font-weight: bold;      /* Negrita */
-    letter-spacing: 1px;    /* Espacio entre letras (le da un toque elegante) */
+/* Estilo genérico para todos los botones de la barra */
+#Menu QPushButton {
+    padding: 8px 20px;
+    border-radius: 4px; /* Bordes redondeados */
+    font-family: "Segoe UI", sans-serif;
+    font-size: 14px;
+    font-weight: bold;
+    color: white; /* Texto blanco */
+    border: none;
+}
+#BtnNew {
+    background-color: #27ae60;
+}
+#BtnNew:hover {
+    background-color: #2ecc71; /* Más claro al pasar el mouse */
+}
+#BtnContinue {
+    background-color: #2980b9;
+}
+#BtnContinue:hover {
+    background-color: #3498db;
 }
