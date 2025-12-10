@@ -4,6 +4,7 @@ from typing import Iterable, List, Tuple
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QAbstractScrollArea,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -13,6 +14,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
+    QHeaderView,
 )
 
 from src.views.components.mini_status import MiniStatusBar
@@ -53,8 +55,10 @@ class EditableTableCard(QFrame):
         self.table.setColumnCount(len(self.columns))
         self.table.setHorizontalHeaderLabels([label for _key, label in self.columns])
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self.table.cellChanged.connect(self.data_changed.emit)
+        self.table.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.table.cellChanged.connect(self._on_cell_changed)
         layout.addWidget(self.table)
 
         controls_layout = QHBoxLayout()
@@ -80,6 +84,7 @@ class EditableTableCard(QFrame):
             self.table.setRowCount(0)
             for row_data in data_list:
                 self._append_row(row_data)
+            self._adjust_table_height()
         finally:
             self.table.blockSignals(blocked)
 
@@ -102,8 +107,26 @@ class EditableTableCard(QFrame):
         for col, (key, _label) in enumerate(self.columns):
             text = str(values.get(key, "")) if values else ""
             self.table.setItem(row_idx, col, QTableWidgetItem(text))
+        self._adjust_table_height()
 
     def _add_empty_row(self) -> None:
         self._append_row({})
         self.data_changed.emit()
+
+    def _on_cell_changed(self, _row: int, _column: int) -> None:
+        self._adjust_table_height()
+        self.data_changed.emit()
+
+    def _adjust_table_height(self) -> None:
+        header_height = self.table.horizontalHeader().height() if self.table.horizontalHeader().isVisible() else 0
+        vertical_height = int(self.table.verticalHeader().length())
+
+        margins = self.table.contentsMargins()
+        frame = int(self.table.frameWidth() * 2)
+        default_rows_height = self.table.verticalHeader().defaultSectionSize()
+        baseline = header_height + default_rows_height
+        total_height = max(baseline, header_height + vertical_height + margins.top() + margins.bottom() + frame)
+
+        self.table.setMinimumHeight(total_height)
+        self.table.setMaximumHeight(total_height)
 

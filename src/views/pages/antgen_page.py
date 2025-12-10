@@ -258,12 +258,14 @@ class AntGenPage(QWidget):
 
             if isinstance(field_row.editor, QPlainTextEdit):
                 field_row.editor.setPlainText(str(value))
+                field_row._update_editor_height()
             elif isinstance(field_row.editor, QTextEdit):
                 text_value = str(value)
                 if "<" in text_value and ">" in text_value:
                     field_row.editor.setHtml(text_value)
                 else:
                     field_row.editor.setPlainText(text_value)
+                field_row._update_editor_height()
             elif isinstance(field_row.editor, QLineEdit):
                 field_row.editor.setText(str(value))
 
