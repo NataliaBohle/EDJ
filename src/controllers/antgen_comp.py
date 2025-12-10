@@ -129,7 +129,7 @@ class AntgenCompiler(QObject):
         table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E6EBF1")),
             ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#1F3A93")),
-            ("LINEBELOW", (0, 0), (-1, -1), colors.HexColor("#D3D9E2")),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#D3D9E2")),
             ("LEFTPADDING", (0, 0), (-1, -1), 6),
             ("RIGHTPADDING", (0, 0), (-1, -1), 6),
             ("TOPPADDING", (0, 0), (-1, -1), 6),
