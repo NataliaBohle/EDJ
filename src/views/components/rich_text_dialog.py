@@ -25,16 +25,14 @@ class RichTextEditorDialog(QDialog):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
 
-        self.toolbar = self._build_toolbar()
-        layout.addWidget(self.toolbar)
-        layout.addWidget(self.editor)
-
         self.editor = QTextEdit(self)
         self.editor.setAcceptRichText(True)
         if initial_html:
             # Usamos HTML para preservar tablas, imágenes u otro formato pegado
             self.editor.setHtml(initial_html)
 
+        self.toolbar = self._build_toolbar()
+        layout.addWidget(self.toolbar)
         layout.addWidget(self.editor)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel,
