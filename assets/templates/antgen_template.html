@@ -1,0 +1,93 @@
+<section>
+    <div class="header-bar">
+        <div>
+            <div class="title-2 section-title">Antecedentes Generales</div>
+            <div class="text-muted">Compilación en formato legal 8.5x13"</div>
+        </div>
+        <div class="meta">
+            <div>Proyecto ID: ${project_id}</div>
+            <div>Emitido: ${timestamp}</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <div class="title-2">Resumen del Proyecto</div>
+            <div class="tag">Información general</div>
+        </div>
+        <div class="text-base"><strong>Tipo de proyecto:</strong> ${tipo_proyecto}</div>
+        <div class="text-base"><strong>Forma de presentación:</strong> ${forma_presentacion}</div>
+        <div class="text-base"><strong>Monto de inversión:</strong> ${monto_inversion}</div>
+        <div class="text-base"><strong>Estado actual:</strong> ${estado_actual}</div>
+        <div class="text-base"><strong>Encargado/a:</strong> ${encargado}</div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <div class="title-2">Descripción del Proyecto</div>
+            <div class="tag">Narrativa</div>
+        </div>
+        ${descripcion_proyecto}
+        <div class="title-3 section-title">Objetivo del proyecto</div>
+        ${objetivo_proyecto}
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <div class="title-2">Datos de Contacto</div>
+            <div class="tag">Titular / Representante / Consultora</div>
+        </div>
+        <div class="title-3">Titular</div>
+        ${titular}
+        <div class="title-3">Representante Legal</div>
+        ${representante_legal}
+        <div class="title-3">Consultora Ambiental</div>
+        ${consultora}
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <div class="title-2">Permisos Ambientales Sectoriales (PAS)</div>
+            <div class="tag">Listado</div>
+        </div>
+        <table class="data-grid">
+            <thead>
+                <tr>
+                    <th>Artículo</th>
+                    <th>Nombre</th>
+                    <th>Tipo</th>
+                    <th>Certificado</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${permisos_rows}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <div class="title-2">Registro de Estados</div>
+            <div class="tag">Trazabilidad</div>
+        </div>
+        <table class="data-grid">
+            <thead>
+                <tr>
+                    <th>Estado</th>
+                    <th>Documento</th>
+                    <th>Número</th>
+                    <th>Fecha</th>
+                    <th>Autor</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${registro_rows}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="disclaimer">
+        Este documento se genera automáticamente a partir de la información disponible en el módulo de Antecedentes
+        Generales del expediente. Verifique que los datos coincidan con las fuentes oficiales antes de su difusión.
+    </div>
+</section>

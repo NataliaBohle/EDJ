@@ -8,6 +8,7 @@ from src.views.components.chapter import Chapter
 from src.views.components.status_bar import StatusBar
 from src.views.components.command_bar import CommandBar
 from src.controllers.fetch_antgen import FetchAntgenController
+from src.controllers.antgen_comp import AntgenCompiler
 from src.views.components.field_row import FieldRow
 from src.views.components.results_table import EditableTableCard
 
@@ -26,6 +27,12 @@ class AntGenPage(QWidget):
         self.fetch_controller.log_requested.connect(self.log_requested.emit)
         self.fetch_controller.extraction_started.connect(self._on_extraction_started)
         self.fetch_controller.extraction_finished.connect(self._on_extraction_finished)
+
+        # Controlador de compilación
+        self.compiler = AntgenCompiler(self)
+        self.compiler.log_requested.connect(self.log_requested.emit)
+        self.compiler.compilation_started.connect(self._on_compilation_started)
+        self.compiler.compilation_finished.connect(self._on_compilation_finished)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -66,6 +73,7 @@ class AntGenPage(QWidget):
         self.btn_fetch = self.command_bar.add_button("Extraer Información", object_name="BtnActionPrimary")
         self.btn_compile_pdf = self.command_bar.add_button("Compilar en PDF", object_name="BtnActionSuccess")
         self.btn_fetch.clicked.connect(self._on_fetch_clicked)
+        self.btn_compile_pdf.clicked.connect(self._on_compile_clicked)
         # Barra de Progreso
         self.progress_bar = QProgressBar(self.command_bar)
         self.progress_bar.setRange(0, 0)
@@ -202,6 +210,16 @@ class AntGenPage(QWidget):
             f"▶️ Iniciando extracción de Antecedentes Generales para ID {self.current_project_id}...")
         self.fetch_controller.start_extraction(self.current_project_id)
 
+    def _on_compile_clicked(self):
+        """Inicia la compilación en PDF usando los datos actuales."""
+        if not self.current_project_id:
+            self.log_requested.emit("⚠️ No hay ID de proyecto activo.")
+            return
+
+        antgen_payload = self._collect_current_data()
+        self.log_requested.emit("📝 Compilando Antecedentes Generales en PDF...")
+        self.compiler.compile_pdf(self.current_project_id, antgen_payload)
+
     @pyqtSlot()
     def _on_extraction_started(self):
         self.btn_fetch.setEnabled(False)
@@ -236,6 +254,23 @@ class AntGenPage(QWidget):
                 self.btn_fetch.setText("Volver a Extraer")
             else:
                 self.btn_fetch.setText("Extraer Información")
+
+    @pyqtSlot()
+    def _on_compilation_started(self):
+        self.btn_compile_pdf.setEnabled(False)
+        self.btn_compile_pdf.setText("Compilando...")
+
+    @pyqtSlot(bool, str)
+    def _on_compilation_finished(self, success: bool, output_path: str):
+        self.btn_compile_pdf.setEnabled(True)
+        self.btn_compile_pdf.setText("Compilar en PDF")
+
+        if success:
+            QMessageBox.information(self, "Compilación completa",
+                                    f"El PDF se generó correctamente en:\n{output_path}")
+        else:
+            QMessageBox.critical(self, "Compilación fallida",
+                                 "No se pudo generar el PDF. Revise el Log para más detalles.")
 
     def _display_extracted_data(self, antgen_data: dict, field_statuses: dict | None = None):
         ant = antgen_data.get("ANTGEN") if isinstance(antgen_data, dict) else None
@@ -303,6 +338,16 @@ class AntGenPage(QWidget):
 
     def _on_table_content_changed(self):
         self._persist_field_values()
+
+    def _collect_current_data(self) -> dict:
+        payload = {
+            key: row.get_value()
+            for key, row in self.field_map.items()
+        }
+
+        payload["permisos_ambientales"] = self.table_pas.get_data()
+        payload["registro_estados"] = self.table_estados.get_data()
+        return payload
 
     def _update_global_status_from_fields(self):
         """Recalcula el estado global de ANTGEN a partir de los campos individuales."""
