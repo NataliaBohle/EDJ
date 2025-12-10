@@ -6,22 +6,19 @@ class Menu(QFrame):
         super().__init__()
         self.setObjectName("Menu")
 
-        # Layout horizontal para los botones
+        self.setFixedHeight(50)
         layout = QHBoxLayout()
-        # Márgenes: Izquierda, Arriba, Derecha, Abajo
-        layout.setContentsMargins(100, 10, 20, 10)
-        layout.setSpacing(15)  # Espacio entre botones
+        layout.setContentsMargins(20, 5, 20, 5)
+        layout.setSpacing(15)
         self.setLayout(layout)
 
         # Botón 1: Nuevo Expediente
         self.btn_new = QPushButton("Nuevo Expediente")
-        self.btn_new.setObjectName("BtnNew")  # ID para darle color verde
+        self.btn_new.setObjectName("BtnNew")
         layout.addWidget(self.btn_new)
 
         # Botón 2: Continuar Expediente
         self.btn_continue = QPushButton("Continuar Expediente")
-        self.btn_continue.setObjectName("BtnContinue")  # ID para darle color azul
+        self.btn_continue.setObjectName("BtnContinue")
         layout.addWidget(self.btn_continue)
-
-        # Empujar botones a la izquierda (el espacio sobrante se va a la derecha)
         layout.addStretch()

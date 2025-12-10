@@ -117,3 +117,42 @@ QSplitter::handle:hover {
     font-size: 12px;
     padding: 5px;
 }
+
+/* --- SIDEBAR --- */
+#Sidebar {
+    background-color: transparent;
+    border-right: 1px solid #dcdcdc;
+    min-width: 200px;
+}
+
+#SidebarTitle {
+    background-color: transparent;
+    color: #7f8c8d;
+    font-weight: bold;
+    padding: 10px 15px;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border-bottom: 1px solid transparent;
+}
+
+#SidebarContainer {
+    background-color: transparent;
+}
+
+/* Botones del Sidebar */
+#SidebarButton {
+    background-color: transparent;
+    color: #2c3e50;
+    text-align: left;
+    padding: 8px 15px;
+    border: none;
+    border-radius: 6px;
+    font-family: "Segoe UI", sans-serif;
+    font-size: 14px;
+}
+
+#SidebarButton:hover {
+    background-color: #e5e5e5;
+    color: #000000;
+}
