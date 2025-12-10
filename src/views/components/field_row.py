@@ -65,7 +65,7 @@ class FieldRow(QFrame):
         self.status_bar = MiniStatusBar(self)
         self.status_bar.setFixedWidth(120)
         # Conectar el cambio de estado a la señal de la fila
-        self.status_bar.status_changed.connect(self.status_changed)
+        self.status_bar.status_changed.connect(self.status_changed.emit)
         layout.addWidget(self.status_bar)
 
     def _connect_change_signal(self):

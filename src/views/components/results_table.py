@@ -46,7 +46,7 @@ class EditableTableCard(QFrame):
 
         self.status_bar = MiniStatusBar(self)
         self.status_bar.setFixedWidth(140)
-        self.status_bar.status_changed.connect(self.status_changed)
+        self.status_bar.status_changed.connect(self._emit_status_changed)
         header.addWidget(self.status_bar)
 
         layout.addLayout(header)
@@ -102,6 +102,9 @@ class EditableTableCard(QFrame):
         return results
 
     # ---- Internos ----
+    def _emit_status_changed(self, status: str) -> None:
+        self.status_changed.emit(status)
+
     def _append_row(self, values: dict | None = None) -> None:
         row_idx = self.table.rowCount()
         self.table.insertRow(row_idx)
