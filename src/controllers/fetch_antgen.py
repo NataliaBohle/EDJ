@@ -147,7 +147,7 @@ class AntgenFetchWorker(QObject):
         try:
             antgen_data = _extract_antgen(self.project_id, log=self.log_signal.emit)
             if antgen_data.get("nombre_proyecto"):
-                _save_antgen_data(self.project_id, antgen_data, "verificado", log=self.log_signal.emit)
+                _save_antgen_data(self.project_id, antgen_data, "edicion", log=self.log_signal.emit)
                 self.log_signal.emit(f"✅ Extracción de ANTGEN completada.")
                 success = True
                 result_data = antgen_data

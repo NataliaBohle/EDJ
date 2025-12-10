@@ -162,7 +162,7 @@ class AntGenPage(QWidget):
         self.progress_bar.setVisible(False)
 
         if success:
-            self.status_bar.set_status("verificado")
+            self.status_bar.set_status("edicion")
             self.log_requested.emit(f"✅ Extracción exitosa. Expediente listo para Descargar.")
 
             self._display_extracted_data(antgen_data)
