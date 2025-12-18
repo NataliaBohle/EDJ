@@ -1,7 +1,6 @@
 import os
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QUrl
-# --- CORRECCIÓN: Se agregó QFrame a la lista de importaciones ---
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QLabel, QHBoxLayout,
     QPushButton, QMessageBox, QProgressBar, QFrame
@@ -125,6 +124,7 @@ class AntGenPage(QWidget):
         # 1. Formulario Modular (Aquí vive toda la complejidad de campos)
         self.form = AntGenForm()
         self.form.setVisible(False)
+
         # Conexiones del formulario
         self.form.data_changed.connect(self._save_field_values)
         self.form.status_changed.connect(self._save_field_statuses)
