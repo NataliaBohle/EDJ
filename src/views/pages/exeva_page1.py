@@ -139,7 +139,7 @@ class Exeva1Page(QWidget):
 
         data = self.data_manager.load_data(pid)
         exeva_section = data.get("expedientes", {}).get("EXEVA", {})
-        exeva_payload = exeva_section.get("EXEVA_DATA", {})
+        exeva_payload = self.data_manager.load_exeva_data(pid)
 
         step_idx = exeva_section.get("step_index", 0)
         step_status = exeva_section.get("step_status", "detectado")

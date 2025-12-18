@@ -262,27 +262,37 @@ def _extract_exeva(idp: str, log: Callable[[str], None] | None = None) -> Dict[s
 
 def _save_exeva_data(idp: str, exeva_data: dict, new_status: str, log: Callable[[str], None]):
     base_folder = os.path.join(os.getcwd(), "Ebook", idp)
-    json_path = os.path.join(base_folder, f"{idp}_fetch.json")
+    base_json_path = os.path.join(base_folder, f"{idp}_fetch.json")
+    exeva_folder = os.path.join(base_folder, "EXEVA")
+    exeva_json_path = os.path.join(exeva_folder, f"{idp}_EXEVA.json")
 
-    if not os.path.exists(json_path):
-        log("❌ Error al guardar: No se encontró el archivo base de configuración.")
+    os.makedirs(exeva_folder, exist_ok=True)
+
+    try:
+        with open(exeva_json_path, "w", encoding="utf-8") as f:
+            json.dump(exeva_data, f, indent=4, ensure_ascii=False)
+        log(f"💾 Datos EXEVA guardados en {exeva_json_path}")
+    except Exception as exc:
+        log(f"❌ Error crítico al escribir datos EXEVA: {exc}")
+
+    if not os.path.exists(base_json_path):
+        log("⚠️ No se encontró el archivo base de configuración para actualizar el estado.")
         return
 
     try:
-        with open(json_path, "r", encoding="utf-8") as f:
+        with open(base_json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         if "EXEVA" in data.get("expedientes", {}):
-            data["expedientes"]["EXEVA"]["EXEVA_DATA"] = exeva_data
             data["expedientes"]["EXEVA"]["status"] = new_status
             data["expedientes"]["EXEVA"]["step_index"] = 1
             data["expedientes"]["EXEVA"]["step_status"] = "detectado"
             data["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
-        with open(json_path, "w", encoding="utf-8") as f:
+        with open(base_json_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
     except Exception as exc:
-        log(f"❌ Error crítico al escribir en JSON: {exc}")
+        log(f"❌ Error crítico al actualizar estado en JSON base: {exc}")
 
 
 # ---------------------------------------------------------------------------
