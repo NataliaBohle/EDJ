@@ -187,35 +187,10 @@ def _parse_tabla_vieja(tabla) -> List[Dict[str, Any]]:
     return documentos
 
 
-# ---------------------------------------------------------------------------
-# Extracción de datos
-# ---------------------------------------------------------------------------
+def _parse_documentos_from_html(html: str, log: Callable[[str], None] | None) -> List[Dict[str, Any]]:
+    """Parsea HTML de EXEVA y devuelve la lista de documentos encontrados."""
 
-def _extract_exeva(idp: str, log: Callable[[str], None] | None = None) -> Dict[str, Any]:
-    idp = (idp or "").strip()
-
-    response_text: str | None = None
-    for template in EXEVA_URL_TEMPLATES:
-        url = template.format(IDP=idp)
-        _log(log, f"[EXEVA] Consultando expediente: {url}")
-
-        try:
-            r = requests.get(url, timeout=15, verify=False)
-        except requests.RequestException as exc:
-            _log(log, f"[EXEVA] Error de conexión con '{url}': {exc}")
-            continue
-
-        if r.status_code != 200:
-            _log(log, f"[EXEVA] Respuesta HTTP inesperada ({r.status_code}) para '{url}'")
-            continue
-
-        response_text = r.text
-        break
-
-    if response_text is None:
-        return {"IDP": idp, "EXEVA": {"documentos": [], "summary": {"total": 0, "format_counts": {}}}}
-
-    soup = BeautifulSoup(response_text, "html.parser")
+    soup = BeautifulSoup(html, "html.parser")
     documentos: List[Dict[str, Any]] = []
 
     tabla_nueva = soup.select_one("table.tabla_datos_linea")
@@ -237,6 +212,39 @@ def _extract_exeva(idp: str, log: Callable[[str], None] | None = None) -> Dict[s
                 documentos = _parse_tabla_nueva(posible)
             else:
                 _log(log, "[EXEVA] No se encontró tabla de documentos.")
+
+    return documentos
+
+
+# ---------------------------------------------------------------------------
+# Extracción de datos
+# ---------------------------------------------------------------------------
+
+def _extract_exeva(idp: str, log: Callable[[str], None] | None = None) -> Dict[str, Any]:
+    idp = (idp or "").strip()
+
+    documentos: List[Dict[str, Any]] = []
+    for template in EXEVA_URL_TEMPLATES:
+        url = template.format(IDP=idp)
+        _log(log, f"[EXEVA] Consultando expediente: {url}")
+
+        try:
+            r = requests.get(url, timeout=15, verify=False)
+        except requests.RequestException as exc:
+            _log(log, f"[EXEVA] Error de conexión con '{url}': {exc}")
+            continue
+
+        if r.status_code != 200:
+            _log(log, f"[EXEVA] Respuesta HTTP inesperada ({r.status_code}) para '{url}'")
+            continue
+
+        documentos = _parse_documentos_from_html(r.text, log)
+        if documentos:
+            break
+        _log(log, f"[EXEVA] Respuesta sin documentos desde '{url}', probando siguiente plantilla...")
+
+    if not documentos:
+        return {"IDP": idp, "EXEVA": {"documentos": [], "summary": {"total": 0, "format_counts": {}}}}
 
     conteo = Counter(doc.get("formato", "sin formato") for doc in documentos)
     return {
