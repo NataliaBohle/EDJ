@@ -9,8 +9,11 @@ from __future__ import annotations
 import json
 import os
 import time
+import base64
+import concurrent.futures
 from collections import Counter
-from typing import Any, Callable, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import requests
@@ -24,9 +27,41 @@ EXEVA_URL_TEMPLATES = [
     "https://seia.sea.gob.cl/expediente/xhr_documentos.php?id_expediente={IDP}",
 ]
 
+
+# ---------------------------------------------------------------------------
+# Utilidades de parsing
+# ---------------------------------------------------------------------------
+
 def _log(cb: Callable[[str], None] | None, message: str) -> None:
     if cb:
         cb(message)
+
+
+def _sanitize_filename(name: str) -> str:
+    """Limpia nombres de archivo eliminando caracteres peligrosos."""
+
+    invalid = '<>:\"/\\|?*'
+    cleaned = "".join("_" if ch in invalid else ch for ch in name)
+    return cleaned.strip() or "documento"
+
+
+def _url_extension(url: str) -> str:
+    path = urlparse(url).path
+    return os.path.splitext(path)[1]
+
+
+def _download_binary(url: str, out_path: Path) -> Tuple[bool, Path]:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with requests.get(url, stream=True, timeout=30, verify=False) as r:
+            r.raise_for_status()
+            with open(out_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+        return True, out_path
+    except Exception:
+        return False, out_path
 
 
 def _abs_url(href: str | None) -> Optional[str]:
@@ -212,6 +247,165 @@ def _parse_documentos_from_html(html: str, log: Callable[[str], None] | None) ->
 
 
 # ---------------------------------------------------------------------------
+# Descarga de documentos
+# ---------------------------------------------------------------------------
+
+
+def _print_docdigital(url: str, out_path: Path, log: Callable[[str], None] | None = None) -> Tuple[bool, Path]:
+    """Imprime un documento digital usando Selenium (modo headless)."""
+
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.chrome.service import Service
+        from selenium.webdriver.support.ui import WebDriverWait
+        from webdriver_manager.chrome import ChromeDriverManager
+
+        chrome_options = Options()
+        chrome_options.add_argument("--headless=new")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--window-size=1280,2000")
+        chrome_options.add_argument(
+            "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+        )
+
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+
+        driver.get(url)
+        WebDriverWait(driver, timeout=45).until(lambda d: d.execute_script("return document.readyState") == "complete")
+
+        pdf = driver.execute_cdp_cmd("Page.printToPDF", {"printBackground": True, "paperWidth": 8.5, "paperHeight": 13})
+
+        if out_path.suffix.lower() != ".pdf":
+            out_path = out_path.with_suffix(".pdf")
+
+        with open(out_path, "wb") as f:
+            f.write(base64.b64decode(pdf["data"]))
+
+        driver.quit()
+        return True, out_path
+    except Exception as exc:
+        _log(log, f"[EXEVA] Falló la impresión Selenium: {exc}")
+        return False, out_path
+
+
+def _doc_folder_name(n: str) -> str:
+    try:
+        num = int(n)
+        return f"{num:02d}"
+    except Exception:
+        n = (n or "").strip()
+        return (n[-2:] or "00").zfill(2)
+
+
+def _process_doc(d: dict, base_dir: Path, project_id: str, log: Callable | None, overwrite: bool = False) -> bool:
+    exeva_dir = base_dir / "EXEVA"
+    files_root = exeva_dir / "files"
+
+    # 1. Validar si ya existe
+    if not overwrite:
+        ruta_prev = d.get("ruta")
+        try:
+            if ruta_prev:
+                p_str = str(ruta_prev).replace("/", os.sep).replace("\\", os.sep)
+                p_prev = Path(p_str)
+                if not p_prev.is_absolute():
+                    p_prev = (base_dir / p_prev).resolve()
+                if p_prev.is_file():
+                    return True
+        except Exception:
+            pass
+
+    # 2. Datos
+    folio = str(d.get("folio") or "").strip()
+    titulo = str(d.get("titulo") or "").strip()
+    n = str(d.get("n") or d.get("num_doc") or "").strip()
+    formato = (d.get("formato") or "").strip().lower()
+    url = d.get("URL_documento") or d.get("url") or ""
+
+    if not url:
+        return False
+
+    folder_name = _doc_folder_name(n)
+    out_dir = files_root / folder_name
+
+    # 3. Ruta usando utilidades
+    base_name = _sanitize_filename("_".join([p for p in [n, folio, titulo] if p])) or "documento"
+    ext_url = _url_extension(url)
+    is_php_like = ext_url in ("", ".php") or "documento.php" in url.lower()
+
+    final_ext = ext_url or ".bin"
+    if is_php_like or formato == "doc digital" or "pdf" in formato:
+        final_ext = ".pdf"
+
+    saved_path = out_dir / (base_name + final_ext)
+
+    # 4. Descarga
+    use_printer = (is_php_like or formato == "doc digital") and ("pdf firmado" not in formato)
+
+    ok = False
+    if use_printer:
+        if overwrite:
+            _log(log, f"[Worker] Recargando (Selenium): {titulo}")
+        else:
+            _log(log, f"[Worker] Imprimiendo: {titulo}")
+        ok, saved_path = _print_docdigital(url, saved_path, log=log)
+    else:
+        if overwrite:
+            _log(log, f"[Worker] Recargando: {titulo}")
+        else:
+            _log(log, f"[Worker] Descargando: {titulo}")
+        ok, saved_path = _download_binary(url, saved_path)
+
+    # 5. Guardar ruta
+    if ok:
+        try:
+            rel = saved_path.resolve().relative_to(base_dir.resolve())
+        except Exception:
+            rel = Path("EXEVA") / "files" / saved_path.name
+
+        clean_path = str(rel).replace("\\", "/")
+        if clean_path.startswith("/"):
+            clean_path = clean_path[1:]
+
+        d["ruta"] = clean_path
+        return True
+
+    _log(log, f"[Worker] Falló: {titulo}")
+    return False
+
+
+def _download_documents(project_id: str, exeva_data: dict, log: Callable[[str], None] | None = None) -> None:
+    documentos = exeva_data.get("EXEVA", {}).get("documentos", []) if isinstance(exeva_data, dict) else []
+    total = len(documentos)
+
+    base_dir = Path(os.getcwd()) / "Ebook" / project_id
+    base_dir.mkdir(parents=True, exist_ok=True)
+    if total == 0:
+        return
+
+    _log(log, f"[EXEVA] Iniciando descarga de {total} documentos...")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [
+            executor.submit(_process_doc, d, base_dir, project_id, log, False)
+            for d in documentos
+        ]
+
+        completed = 0
+        for future in concurrent.futures.as_completed(futures):
+            completed += 1
+            try:
+                future.result()
+            except Exception as exc:
+                _log(log, f"[EXEVA] Error en descarga concurrente: {exc}")
+
+    _log(log, "[EXEVA] Descarga finalizada.")
+
+
+# ---------------------------------------------------------------------------
 # Extracción de datos
 # ---------------------------------------------------------------------------
 
@@ -313,6 +507,7 @@ class ExevaFetchWorker(QObject):
             documentos = exeva_data.get("EXEVA", {}).get("documentos", [])
 
             if documentos:
+                _download_documents(self.project_id, exeva_data, log=self.log_signal.emit)
                 _save_exeva_data(self.project_id, exeva_data, "edicion", log=self.log_signal.emit)
                 self.log_signal.emit("✅ Extracción de EXEVA completada.")
                 success = True
