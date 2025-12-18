@@ -8,6 +8,7 @@ from src.views.pages.new_ebook import NewEbook
 from src.views.pages.cont_ebook import ContEbook
 from src.views.pages.project_view import ProjectView
 from src.views.pages.antgen_page import AntGenPage
+from src.views.pages.exeva_page1 import Exeva1Page
 # Asegúrate de que el nombre del archivo coincida (fetch_exp o fetch_exp_controller)
 from src.controllers.fetch_exp import FetchExp
 from src.controllers.step_controller import StepController
@@ -75,6 +76,10 @@ class MainWindow(QMainWindow):
         self.antgen_page = AntGenPage()
         self.workspace_stack.addWidget(self.antgen_page)
 
+        # EXEVA
+        self.exeva_page = Exeva1Page()
+        self.workspace_stack.addWidget(self.exeva_page)
+
         # --- 2. LOG SCREEN ---
         self.log_screen = LogScreen()
         self.v_splitter.addWidget(self.log_screen)
@@ -94,6 +99,7 @@ class MainWindow(QMainWindow):
         self.page_project_view.action_requested.connect(self.step_controller.handle_activation)
         self.page_project_view.log_requested.connect(self.log_screen.add_log)
         self.antgen_page.log_requested.connect(self.log_screen.add_log)
+        self.exeva_page.log_requested.connect(self.log_screen.add_log)
 
 
         # --- 5. TAMAÑOS INICIALES ---
@@ -133,6 +139,11 @@ class MainWindow(QMainWindow):
         # CORREGIDO: Usamos self.page_antgen
         self.antgen_page.load_project(project_id)
         self.workspace_stack.setCurrentWidget(self.antgen_page)
+
+    def show_exeva_page(self, project_id):
+        self.log_screen.add_log(f"Entrando a EXEVA: {project_id}")
+        self.exeva_page.load_project(project_id)
+        self.workspace_stack.setCurrentWidget(self.exeva_page)
 
     def on_continue_expediente(self):
         self.log_screen.add_log("Retomando expediente existente...")

@@ -23,6 +23,10 @@ class StepController(QObject):
             self.main_window.show_antgen_page(project_id)
             return
 
+        if code == "EXEVA":
+            self.main_window.show_exeva_page(project_id)
+            return
+
         else:
             # Lógica para otros expedientes futuros (EXEVA, EXPAC, etc.)
             if step_index == 1:
