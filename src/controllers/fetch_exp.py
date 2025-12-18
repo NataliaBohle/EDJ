@@ -9,7 +9,10 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal
 # --- CONFIGURACIÓN BASE ---
 EXPEDIENTES_FRAGMENTS = {
     "ANTGEN": "fichaPrincipal.php",
-    "EXEVA": "xhr_expediente.php",
+    # Algunos proyectos exponen EXEVA desde "xhr_expediente.php" y otros desde
+    # "/expediente/xhr_documentos.php?id_expediente=". Consideramos ambos para
+    # detectar la ficha de Evaluación Ambiental sin depender del formato exacto.
+    "EXEVA": ["xhr_expediente.php", "/expediente/xhr_documentos.php?id_expediente="],
     "EXPAC": "xhr_documentos_pac.php",
     "EXPCI": "xhr_pci.php",
     "EXA86": "xhr_pci_reunion.php",
@@ -66,8 +69,9 @@ class FetchWorker(QThread):
             self.log_signal.emit("Analizando secciones generales...")
             html_lower = html_main.lower()
 
-            for code, fragment in EXPEDIENTES_FRAGMENTS.items():
-                is_present = fragment.lower() in html_lower
+            for code, fragments in EXPEDIENTES_FRAGMENTS.items():
+                fragment_list = fragments if isinstance(fragments, (list, tuple, set)) else [fragments]
+                is_present = any(fragment.lower() in html_lower for fragment in fragment_list)
                 if is_present:
                     found_count += 1
                     expedientes_data[code] = {
