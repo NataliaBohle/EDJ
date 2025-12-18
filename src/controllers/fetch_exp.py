@@ -9,7 +9,7 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal
 # --- CONFIGURACIÓN BASE ---
 EXPEDIENTES_FRAGMENTS = {
     "ANTGEN": "fichaPrincipal.php",
-    "EXEVA": ["xhr_expediente.php", "/expediente/xhr_documentos.php?id_expediente="],
+    "EXEVA": ["xhr_expediente.php", "xhr_documentos.php"],
     "EXPAC": "xhr_documentos_pac.php",
     "EXPCI": "xhr_pci.php",
     "EXA86": "xhr_pci_reunion.php",
