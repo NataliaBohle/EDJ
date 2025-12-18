@@ -330,6 +330,7 @@ def _process_doc(d: dict, base_dir: Path, project_id: str, log: Callable | None,
 
     folder_name = _doc_folder_name(n)
     out_dir = files_root / folder_name
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     # 3. Ruta usando utilidades
     base_name = _sanitize_filename("_".join([p for p in [n, folio, titulo] if p])) or "documento"
