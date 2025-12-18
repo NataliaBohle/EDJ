@@ -24,11 +24,6 @@ EXEVA_URL_TEMPLATES = [
     "https://seia.sea.gob.cl/expediente/xhr_documentos.php?id_expediente={IDP}",
 ]
 
-
-# ---------------------------------------------------------------------------
-# Utilidades de parsing
-# ---------------------------------------------------------------------------
-
 def _log(cb: Callable[[str], None] | None, message: str) -> None:
     if cb:
         cb(message)
