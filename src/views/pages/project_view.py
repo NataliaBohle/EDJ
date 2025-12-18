@@ -65,14 +65,7 @@ class ProjectView(QWidget):
             with open(json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
-            # Aseguramos que exista la estructura de expedientes
-            expedientes = data.setdefault("expedientes", {})
-
-            # Si faltara el expediente EXEVA, avisamos pero no lo generamos
-            if "EXEVA" not in expedientes:
-                self.log_requested.emit(
-                    "⚠️ El expediente EXEVA no está presente en el JSON; verifica la captura del proyecto."
-                )
+            expedientes = data.get("expedientes", {})
 
             if not expedientes:
                 self.container_layout.addWidget(QLabel("Este proyecto no tiene expedientes detectados."))
