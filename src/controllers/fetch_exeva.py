@@ -38,8 +38,6 @@ def _log(cb: Callable[[str], None] | None, message: str) -> None:
 
 
 def _sanitize_filename(name: str) -> str:
-    """Limpia nombres de archivo eliminando caracteres peligrosos."""
-
     invalid = '<>:\"/\\|?*'
     cleaned = "".join("_" if ch in invalid else ch for ch in name)
     return cleaned.strip() or "documento"
