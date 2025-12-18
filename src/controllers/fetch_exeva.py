@@ -18,7 +18,11 @@ from bs4 import BeautifulSoup
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 BASE_URL = "https://seia.sea.gob.cl"
-EXEVA_URL_TEMPLATE = "https://seia.sea.gob.cl/expediente/xhr_expediente2.php?id_expediente={IDP}"
+EXEVA_URL_TEMPLATES = [
+    "https://seia.sea.gob.cl/expediente/xhr_expediente2.php?id_expediente={IDP}",
+    "https://seia.sea.gob.cl/expediente/xhr_expediente.php?id_expediente={IDP}",
+    "https://seia.sea.gob.cl/expediente/xhr_documentos.php?id_expediente={IDP}",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -189,20 +193,29 @@ def _parse_tabla_vieja(tabla) -> List[Dict[str, Any]]:
 
 def _extract_exeva(idp: str, log: Callable[[str], None] | None = None) -> Dict[str, Any]:
     idp = (idp or "").strip()
-    url = EXEVA_URL_TEMPLATE.format(IDP=idp)
-    _log(log, f"[EXEVA] Consultando expediente: {url}")
 
-    try:
-        r = requests.get(url, timeout=15, verify=False)
-    except requests.RequestException as exc:
-        _log(log, f"[EXEVA] Error de conexión: {exc}")
+    response_text: str | None = None
+    for template in EXEVA_URL_TEMPLATES:
+        url = template.format(IDP=idp)
+        _log(log, f"[EXEVA] Consultando expediente: {url}")
+
+        try:
+            r = requests.get(url, timeout=15, verify=False)
+        except requests.RequestException as exc:
+            _log(log, f"[EXEVA] Error de conexión con '{url}': {exc}")
+            continue
+
+        if r.status_code != 200:
+            _log(log, f"[EXEVA] Respuesta HTTP inesperada ({r.status_code}) para '{url}'")
+            continue
+
+        response_text = r.text
+        break
+
+    if response_text is None:
         return {"IDP": idp, "EXEVA": {"documentos": [], "summary": {"total": 0, "format_counts": {}}}}
 
-    if r.status_code != 200:
-        _log(log, f"[EXEVA] Respuesta HTTP inesperada: {r.status_code}")
-        return {"IDP": idp, "EXEVA": {"documentos": [], "summary": {"total": 0, "format_counts": {}}}}
-
-    soup = BeautifulSoup(r.text, "html.parser")
+    soup = BeautifulSoup(response_text, "html.parser")
     documentos: List[Dict[str, Any]] = []
 
     tabla_nueva = soup.select_one("table.tabla_datos_linea")
