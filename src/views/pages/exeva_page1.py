@@ -1,7 +1,12 @@
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QScrollArea, QLabel, QHBoxLayout,
-    QProgressBar, QFrame
+    QWidget,
+    QVBoxLayout,
+    QScrollArea,
+    QLabel,
+    QHBoxLayout,
+    QProgressBar,
+    QFrame,
 )
 
 # Componentes
@@ -10,11 +15,13 @@ from src.views.components.status_bar import StatusBar
 from src.views.components.command_bar import CommandBar
 from src.views.components.timeline import Timeline
 
-# Controladores y Modelos de antgen
+# Modelos
 from src.models.project_data_manager import ProjectDataManager
 
 
 class Exeva1Page(QWidget):
+    """Pantalla inicial para el expediente EXEVA."""
+
     log_requested = pyqtSignal(str)
 
     def __init__(self):
@@ -23,10 +30,7 @@ class Exeva1Page(QWidget):
         self.current_project_id = None
         self.is_loading = False
 
-        # 1. Inicializar Lógica de Negocio (Controladores y Modelos)
         self._init_controllers()
-
-        # 2. Construir Interfaz Gráfica (Layouts y Widgets)
         self._setup_ui()
 
     def _init_controllers(self):
@@ -58,10 +62,7 @@ class Exeva1Page(QWidget):
         sb_lay.setSpacing(15)
         sb_lay.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        lbl_estado = QLabel("Estado:")
-        lbl_estado.setStyleSheet("color:#555; font-weight:bold; font-size:13px;")
-        sb_lay.addWidget(lbl_estado)
-
+        sb_lay.addWidget(QLabel("Estado:", styleSheet="color:#555; font-weight:bold; font-size:13px;"))
         self.status_bar = StatusBar()
         self.status_bar.status_changed.connect(self.save_status_change)
         sb_lay.addWidget(self.status_bar)
@@ -127,6 +128,8 @@ class Exeva1Page(QWidget):
         self.scroll.setWidget(self.content_widget)
         layout.addWidget(self.scroll)
 
+    # --- LÓGICA ---
+
     def load_project(self, pid: str):
         """Carga el estado del proyecto desde disco y ajusta la UI."""
         self.current_project_id = pid
@@ -142,6 +145,7 @@ class Exeva1Page(QWidget):
 
         self.timeline.set_current_step(step_idx, step_status)
         self.status_bar.set_status(global_status)
+
         self.is_loading = False
 
     def save_status_change(self, new_status: str):

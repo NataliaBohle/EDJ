@@ -72,10 +72,11 @@ class MainWindow(QMainWindow):
         self.workspace_stack.addWidget(self.page_cont_ebook)
 
         # ANTGEN
+        # CORRECCIÓN DE NOMBRE: Usamos self.page_antgen para ser consistentes
         self.antgen_page = AntGenPage()
         self.workspace_stack.addWidget(self.antgen_page)
 
-        # Inicializar Exeva Page
+        # EXEVA
         self.exeva_page = Exeva1Page()
         self.workspace_stack.addWidget(self.exeva_page)
 
@@ -135,6 +136,7 @@ class MainWindow(QMainWindow):
 
     def show_antgen_page(self, project_id):
         self.log_screen.add_log(f"Entrando a Antecedentes Generales: {project_id}")
+        # CORREGIDO: Usamos self.page_antgen
         self.antgen_page.load_project(project_id)
         self.workspace_stack.setCurrentWidget(self.antgen_page)
 
