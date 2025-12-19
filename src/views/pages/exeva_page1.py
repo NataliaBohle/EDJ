@@ -282,5 +282,5 @@ class Exeva1Page(QWidget):
             self.results_table.table.resizeColumnsToContents()
 
     def _open_pdf_viewer(self, doc_data: dict) -> None:
-        viewer = PdfViewer(doc_data, self)
+        viewer = PdfViewer(doc_data, self, project_id=self.current_project_id)
         viewer.exec()
