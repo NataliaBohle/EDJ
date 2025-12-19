@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -137,7 +138,7 @@ class PdfViewer(QDialog):
         self.page_label.setMinimumHeight(240)
 
         self.normal_scroll = QScrollArea(self)
-        self.normal_scroll.setWidgetResizable(True)
+        self.normal_scroll.setWidgetResizable(False)
         self.normal_scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.normal_scroll.setWidget(self.page_label)
 
@@ -164,6 +165,7 @@ class PdfViewer(QDialog):
         self.page_selector = QSpinBox(self)
         self.page_selector.setMinimum(1)
         self.page_selector.setMaximum(1)
+        self.page_selector.setInvertedControls(True)
         self.page_selector.valueChanged.connect(self._jump_to_page_1based)
         paginator.addWidget(self.page_selector)
 
@@ -182,6 +184,7 @@ class PdfViewer(QDialog):
         self._grid_rerender_timer.setSingleShot(True)
         self._grid_rerender_timer.timeout.connect(self._render_grid)
 
+        self._load_view_state()
         self._load_document()
         self._set_mode(self._mode)
 
@@ -258,6 +261,62 @@ class PdfViewer(QDialog):
             self.viewer_status.setText("Vista normal activa.")
 
     # ---------- path / load ----------
+    def _view_state_path(self) -> Path | None:
+        if not self._doc_path:
+            return None
+        path = Path(self._doc_path)
+        return path.with_suffix(f"{path.suffix}.view.json")
+
+    def _load_view_state(self) -> None:
+        path = self._view_state_path()
+        if not path or not path.exists():
+            return
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+
+        rotations = data.get("rotations", {})
+        if isinstance(rotations, dict):
+            self._page_rotation_delta = {}
+            for key, value in rotations.items():
+                try:
+                    page_index = int(key)
+                    rotation = int(value) % 360
+                except (TypeError, ValueError):
+                    continue
+                if rotation:
+                    self._page_rotation_delta[page_index] = rotation
+
+        page = data.get("page")
+        if isinstance(page, int):
+            self._pending_restore_page = page
+
+        zoom = data.get("grid_zoom")
+        if isinstance(zoom, int):
+            self.zoom_slider.setValue(max(50, min(200, zoom)))
+
+        mode = data.get("mode")
+        if mode in ("normal", "grid"):
+            self._mode = mode
+
+        self._dirty_rotations = False
+
+    def _save_view_state(self) -> None:
+        path = self._view_state_path()
+        if not path:
+            return
+        data = {
+            "page": self._current_page,
+            "rotations": {str(k): v for k, v in self._page_rotation_delta.items()},
+            "mode": self._mode,
+            "grid_zoom": self.zoom_slider.value(),
+        }
+        try:
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError:
+            return
+
     def _resolve_doc_path(self, ruta: str | None, project_id: str | None) -> str:
         if not ruta:
             return ""
@@ -399,6 +458,7 @@ class PdfViewer(QDialog):
             self.page_label.setText("No se pudo renderizar la página.")
             return
         self.page_label.setPixmap(pm)
+        self.page_label.setFixedSize(pm.size())
         self.page_label.adjustSize()
 
     def resizeEvent(self, event):  # type: ignore[override]
@@ -407,6 +467,10 @@ class PdfViewer(QDialog):
         if self._mode == "normal":
             self._thumb_cache.clear()
             self._render_current_page()
+
+    def closeEvent(self, event):  # type: ignore[override]
+        self._save_view_state()
+        super().closeEvent(event)
 
     # ---------- grid ----------
     def _request_grid_rerender(self, _value: int) -> None:
@@ -452,7 +516,8 @@ class PdfViewer(QDialog):
 
             thumb = _ThumbLabel(i, wrapper)
             thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            thumb.setStyleSheet("background: #fff; border: 1px solid #bbb;")
+            border = "2px solid #2f74ff" if i == self._current_page else "1px solid #bbb"
+            thumb.setStyleSheet(f"background: #fff; border: {border};")
             pm = self._render_page_pixmap(i, target_w, self._page_rotation_delta.get(i, 0))
             if pm is not None:
                 thumb.setPixmap(pm)
