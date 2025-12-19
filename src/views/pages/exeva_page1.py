@@ -1,7 +1,9 @@
 from PyQt6.QtCore import Qt, pyqtSignal
+from functools import partial
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QLabel, QHBoxLayout,
-    QProgressBar, QFrame, QMessageBox, QAbstractItemView, QHeaderView
+    QProgressBar, QFrame, QMessageBox, QAbstractItemView, QHeaderView, QPushButton
 )
 
 # Componentes
@@ -10,6 +12,7 @@ from src.views.components.status_bar import StatusBar
 from src.views.components.command_bar import CommandBar
 from src.views.components.timeline import Timeline
 from src.views.components.results_table import EditableTableCard
+from src.views.components.pdf_viewer import PdfViewer
 
 # Controladores y Modelos de antgen
 from src.controllers.fetch_exeva import FetchExevaController
@@ -137,6 +140,7 @@ class Exeva1Page(QWidget):
                 ("titulo", "Nombre"),
                 ("remitido_por", "Remitido por"),
                 ("fecha", "Fecha"),
+                ("ver_doc", "Ver doc"),
             ],
             parent=self.content_widget,
         )
@@ -257,6 +261,7 @@ class Exeva1Page(QWidget):
                 "titulo": doc.get("titulo", ""),
                 "remitido_por": doc.get("remitido_por", ""),
                 "fecha": doc.get("fecha", ""),
+                "ver_doc": "",
             }
             for doc in documentos
         ]
@@ -264,4 +269,18 @@ class Exeva1Page(QWidget):
         has_rows = bool(rows)
         self.results_table.setVisible(has_rows)
         if has_rows:
+            ver_col = next(
+                (idx for idx, (key, _label) in enumerate(self.results_table.columns) if key == "ver_doc"),
+                None,
+            )
+            if ver_col is not None:
+                for row_idx, doc in enumerate(documentos):
+                    button = QPushButton("Ver doc", self.results_table.table)
+                    button.setObjectName("BtnActionSecondary")
+                    button.clicked.connect(partial(self._open_pdf_viewer, doc))
+                    self.results_table.table.setCellWidget(row_idx, ver_col, button)
             self.results_table.table.resizeColumnsToContents()
+
+    def _open_pdf_viewer(self, doc_data: dict) -> None:
+        viewer = PdfViewer(doc_data, self)
+        viewer.exec()
