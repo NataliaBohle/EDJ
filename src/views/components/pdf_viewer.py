@@ -1,4 +1,5 @@
 import json
+import math
 import os
 from pathlib import Path
 
@@ -388,7 +389,13 @@ class PdfViewer(QDialog):
         # QSizeF en puntos; puede variar por página.
         try:
             sz = self.pdf_document.pagePointSize(page_index)
-            return float(sz.width()), float(sz.height())
+            width = float(sz.width())
+            height = float(sz.height())
+            if not math.isfinite(width) or not math.isfinite(height):
+                raise ValueError("non-finite page size")
+            if width <= 0 or height <= 0 or width > 20000 or height > 20000:
+                raise ValueError("page size out of range")
+            return width, height
         except Exception:
             return 595.0, 842.0  # fallback A4 aprox
 
