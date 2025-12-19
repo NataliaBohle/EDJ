@@ -419,8 +419,8 @@ class PdfViewer(QDialog):
         else:
             target_size = QSize(max(1, int(target_width)), target_height)
 
-        max_dim = 4096
-        max_pixels = 12_000_000
+        max_dim = 2048
+        max_pixels = 4_000_000
         if target_size.width() > max_dim or target_size.height() > max_dim:
             target_size = QSize(min(target_size.width(), max_dim), min(target_size.height(), max_dim))
         if target_size.width() * target_size.height() > max_pixels:
@@ -466,7 +466,7 @@ class PdfViewer(QDialog):
         # Render a un ancho basado en el viewport actual
         viewport_w = max(640, self.normal_scroll.viewport().width() - 24)
         # Un tope para no generar imágenes gigantes (mantener usabilidad)
-        viewport_w = min(viewport_w, 1600)
+        viewport_w = min(viewport_w, 1200)
 
         pm = self._render_page_pixmap(
             self._current_page,
