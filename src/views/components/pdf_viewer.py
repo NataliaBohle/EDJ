@@ -402,6 +402,8 @@ class PdfViewer(QDialog):
             return None
 
         aspect = h_pt / w_pt
+        if not (0.1 <= aspect <= 10.0):
+            aspect = max(0.1, min(10.0, aspect))
         target_height = max(1, int(target_width * aspect))
         # Si la página está rotada 90/270, renderiza con dimensiones invertidas para que el ancho final
         # (post-rotación) se mantenga cercano a target_width.
@@ -411,8 +413,12 @@ class PdfViewer(QDialog):
             target_size = QSize(max(1, int(target_width)), target_height)
 
         max_dim = 4096
+        max_pixels = 12_000_000
         if target_size.width() > max_dim or target_size.height() > max_dim:
             target_size = QSize(min(target_size.width(), max_dim), min(target_size.height(), max_dim))
+        if target_size.width() * target_size.height() > max_pixels:
+            scale = (max_pixels / (target_size.width() * target_size.height())) ** 0.5
+            target_size = QSize(max(1, int(target_size.width() * scale)), max(1, int(target_size.height() * scale)))
 
         try:
             img = self.pdf_document.render(page_index, target_size)
