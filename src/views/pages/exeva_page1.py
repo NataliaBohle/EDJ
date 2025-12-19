@@ -13,9 +13,11 @@ from src.views.components.command_bar import CommandBar
 from src.views.components.timeline import Timeline
 from src.views.components.results_table import EditableTableCard
 from src.views.components.pdf_viewer import PdfViewer
+from src.views.components.links_review import LinksReviewDialog
 
 # Controladores y Modelos de antgen
 from src.controllers.fetch_exeva import FetchExevaController
+from src.controllers.fetch_anexos import FetchAnexosController
 from src.models.project_data_manager import ProjectDataManager
 
 
@@ -44,7 +46,10 @@ class Exeva1Page(QWidget):
         self.fetch_controller.log_requested.connect(self.log_requested.emit)
         self.fetch_controller.extraction_started.connect(self._on_extraction_started)
         self.fetch_controller.extraction_finished.connect(self._on_extraction_finished)
-        self.fetch_anexos_controller = None
+        self.fetch_anexos_controller = FetchAnexosController(self)
+        self.fetch_anexos_controller.log_requested.connect(self.log_requested.emit)
+        self.fetch_anexos_controller.detection_started.connect(self._on_anexos_detection_started)
+        self.fetch_anexos_controller.detection_finished.connect(self._on_anexos_detection_finished)
         self.down_anexos_controller = None
 
     def _setup_ui(self):
@@ -140,6 +145,9 @@ class Exeva1Page(QWidget):
                 ("titulo", "Nombre"),
                 ("remitido_por", "Remitido por"),
                 ("fecha", "Fecha"),
+                ("anexos_detectados", "Anexos"),
+                ("vinculados_detectados", "Vinculados"),
+                ("ver_anexos", "Ver anexos"),
                 ("ver_doc", "Ver doc"),
             ],
             parent=self.content_widget,
@@ -213,7 +221,7 @@ class Exeva1Page(QWidget):
     def _on_fetchanexos_clicked(self):
         if not self.current_project_id:
             return
-        self.log_requested.emit("🚧 Detectar anexos pendiente de implementación.")
+        self.fetch_anexos_controller.start_detection(self.current_project_id)
 
     def _on_downanexos_clicked(self):
         if not self.current_project_id:
@@ -253,6 +261,24 @@ class Exeva1Page(QWidget):
             self._set_results_table([])
             QMessageBox.critical(self, "Error", "Fallo en la extracción de EXEVA.")
 
+    def _on_anexos_detection_started(self):
+        self.btn_fetchanexos.setEnabled(False)
+        self.pbar.setVisible(True)
+        self.pbar.setRange(0, 0)
+
+    def _on_anexos_detection_finished(self, success: bool, _data: dict):
+        self.pbar.setVisible(False)
+        self.btn_fetchanexos.setEnabled(True)
+        self.pbar.setRange(0, 100)
+
+        if success:
+            exeva_payload = self.data_manager.load_exeva_data(self.current_project_id)
+            documentos = exeva_payload.get("EXEVA", {}).get("documentos", [])
+            self._set_results_table(documentos)
+            self.log_requested.emit("✅ Anexos detectados y tabla actualizada.")
+        else:
+            self.log_requested.emit("⚠️ No se pudieron detectar anexos.")
+
     def _set_results_table(self, documentos: list[dict]) -> None:
         rows = [
             {
@@ -261,6 +287,9 @@ class Exeva1Page(QWidget):
                 "titulo": doc.get("titulo", ""),
                 "remitido_por": doc.get("remitido_por", ""),
                 "fecha": doc.get("fecha", ""),
+                "anexos_detectados": str(len(doc.get("anexos_detectados") or [])),
+                "vinculados_detectados": str(len(doc.get("vinculados_detectados") or [])),
+                "ver_anexos": "",
                 "ver_doc": "",
             }
             for doc in documentos
@@ -279,8 +308,33 @@ class Exeva1Page(QWidget):
                     button.setObjectName("BtnActionSecondary")
                     button.clicked.connect(partial(self._open_pdf_viewer, doc))
                     self.results_table.table.setCellWidget(row_idx, ver_col, button)
+            anexos_col = next(
+                (idx for idx, (key, _label) in enumerate(self.results_table.columns) if key == "ver_anexos"),
+                None,
+            )
+            if anexos_col is not None:
+                for row_idx, doc in enumerate(documentos):
+                    button = QPushButton("Ver anexos", self.results_table.table)
+                    button.setObjectName("BtnActionSecondary")
+                    button.clicked.connect(partial(self._open_links_review, doc))
+                    self.results_table.table.setCellWidget(row_idx, anexos_col, button)
             self.results_table.table.resizeColumnsToContents()
 
     def _open_pdf_viewer(self, doc_data: dict) -> None:
         viewer = PdfViewer(doc_data, self, project_id=self.current_project_id)
         viewer.exec()
+
+    def _open_links_review(self, doc_data: dict) -> None:
+        anexos = doc_data.get("anexos_detectados") or []
+        vinculados = doc_data.get("vinculados_detectados") or []
+        links = []
+        for item in anexos:
+            payload = dict(item)
+            payload.setdefault("tipo", "anexo")
+            links.append(payload)
+        for item in vinculados:
+            payload = dict(item)
+            payload.setdefault("tipo", "vinculado")
+            links.append(payload)
+        dialog = LinksReviewDialog(links, self)
+        dialog.exec()
