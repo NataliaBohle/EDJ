@@ -1,7 +1,7 @@
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QLabel, QHBoxLayout,
-    QProgressBar, QFrame, QMessageBox
+    QProgressBar, QFrame, QMessageBox, QAbstractItemView, QHeaderView
 )
 
 # Componentes
@@ -9,6 +9,7 @@ from src.views.components.chapter import Chapter
 from src.views.components.status_bar import StatusBar
 from src.views.components.command_bar import CommandBar
 from src.views.components.timeline import Timeline
+from src.views.components.results_table import EditableTableCard
 
 # Controladores y Modelos de antgen
 from src.controllers.fetch_exeva import FetchExevaController
@@ -128,6 +129,25 @@ class Exeva1Page(QWidget):
         self.lbl_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.content_layout.addWidget(self.lbl_placeholder)
 
+        self.results_table = EditableTableCard(
+            "Resultados EXEVA",
+            columns=[
+                ("n", "N° Documento"),
+                ("folio", "Folio"),
+                ("titulo", "Nombre"),
+                ("remitido_por", "Remitido por"),
+                ("fecha", "Fecha"),
+            ],
+            parent=self.content_widget,
+        )
+        self.results_table.btn_add_row.setVisible(False)
+        self.results_table.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        header = self.results_table.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header.setStretchLastSection(False)
+        self.results_table.setVisible(False)
+        self.content_layout.addWidget(self.results_table)
+
         self.scroll.setWidget(self.content_widget)
         layout.addWidget(self.scroll)
 
@@ -161,6 +181,7 @@ class Exeva1Page(QWidget):
             )
             self.btn_fetchexeva.setText("1. Descargar Expediente")
         self.lbl_placeholder.setVisible(True)
+        self._set_results_table(documentos)
         self.is_loading = False
 
     def save_status_change(self, new_status: str):
@@ -213,6 +234,7 @@ class Exeva1Page(QWidget):
             total = len(documentos)
             self.lbl_placeholder.setText(f"Expediente descargado: {total} documentos detectados.")
             self.lbl_placeholder.setVisible(True)
+            self._set_results_table(documentos)
             self.status_bar.set_status("edicion")
             self.timeline.set_current_step(1, "edicion")
             self.data_manager.update_step_status(
@@ -224,4 +246,22 @@ class Exeva1Page(QWidget):
             self.timeline.set_current_step(self.timeline.current_step, "error")
             self.lbl_placeholder.setText("No se pudo descargar el expediente. Intente nuevamente.")
             self.lbl_placeholder.setVisible(True)
+            self._set_results_table([])
             QMessageBox.critical(self, "Error", "Fallo en la extracción de EXEVA.")
+
+    def _set_results_table(self, documentos: list[dict]) -> None:
+        rows = [
+            {
+                "n": doc.get("n", ""),
+                "folio": doc.get("folio", ""),
+                "titulo": doc.get("titulo", ""),
+                "remitido_por": doc.get("remitido_por", ""),
+                "fecha": doc.get("fecha", ""),
+            }
+            for doc in documentos
+        ]
+        self.results_table.set_data(rows)
+        has_rows = bool(rows)
+        self.results_table.setVisible(has_rows)
+        if has_rows:
+            self.results_table.table.resizeColumnsToContents()

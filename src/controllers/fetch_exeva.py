@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
@@ -26,6 +27,12 @@ EXEVA_URL_TEMPLATES = [
     "https://seia.sea.gob.cl/expediente/xhr_expediente.php?id_expediente={IDP}",
     "https://seia.sea.gob.cl/expediente/xhr_documentos.php?id_expediente={IDP}",
 ]
+
+# Silenciar advertencias de certificados autofirmados/ausentes durante las
+# peticiones a los servicios de EXEVA. Se mantienen las solicitudes con
+# verify=False para compatibilidad, pero sin inundar los logs con
+# InsecureRequestWarning.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +45,8 @@ def _log(cb: Callable[[str], None] | None, message: str) -> None:
 
 
 def _sanitize_filename(name: str) -> str:
+    """Limpia nombres de archivo eliminando caracteres peligrosos."""
+
     invalid = '<>:\"/\\|?*'
     cleaned = "".join("_" if ch in invalid else ch for ch in name)
     return cleaned.strip() or "documento"
