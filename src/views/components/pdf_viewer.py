@@ -410,6 +410,10 @@ class PdfViewer(QDialog):
         else:
             target_size = QSize(max(1, int(target_width)), target_height)
 
+        max_dim = 4096
+        if target_size.width() > max_dim or target_size.height() > max_dim:
+            target_size = QSize(min(target_size.width(), max_dim), min(target_size.height(), max_dim))
+
         try:
             img = self.pdf_document.render(page_index, target_size)
             if img.isNull():
