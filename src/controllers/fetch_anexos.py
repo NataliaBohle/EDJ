@@ -1,0 +1,451 @@
+from __future__ import annotations
+
+"""
+EXEVA3: Detección de Anexos y Vinculados (REFACTORIZADO).
+Usa utilidades centralizadas.
+"""
+
+from typing import Callable, Dict, Any, List, Set
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse, urljoin, parse_qs
+from pathlib import Path
+import json
+import concurrent.futures
+
+# Importar utilidades (Log y Configuración SSL centralizada)
+from .utils import log as _log
+
+# Intentar importar pypdf
+try:
+    from pypdf import PdfReader
+
+    PYPDF_AVAILABLE = True
+except ImportError:
+    PYPDF_AVAILABLE = False
+
+from EDJ5_pro import a_detect
+
+# =========================
+# Configuración y Filtros
+# =========================
+
+BASE_URL = "https://seia.sea.gob.cl"
+EXCLUSIONS_FILE = Path(__file__).resolve().parent / "user_exclusions.json"
+
+BASE_EXCLUSIONS = {
+    "exact": {"", "#", "/"},
+    "contains": {
+        "javascript:", "mailto:", "tel:", "whatsapp:",
+        "facebook.com", "twitter.com", "linkedin.com", "instagram.com",
+        "recaptcha", "google.com/recaptcha", "void(0)",
+        "http://www.sea.gob.cl/",
+        "/busqueda/buscarProyecto.php",
+        "/pacDia/publico/index.php",
+        "/externos/proyectos_en_pac.php",
+        "/busqueda/buscadorParticipacionCiudadana.php",
+        "/pertinencia/buscarPertinencia.php",
+        "/recursos/busqueda/buscar.php",
+        "/busqueda/buscarRevisionRCA.php",
+        "/busqueda/buscarNotificaciones.php",
+        "/busqueda/buscarConsultor.php",
+        "logout.php",
+        "certInfoAjaxModal",
+        "getXmlFile",
+        "verificarFirma",
+    },
+}
+
+
+def _get_user_exclusions() -> Set[str]:
+    if not EXCLUSIONS_FILE.exists():
+        return set()
+    try:
+        data = json.loads(EXCLUSIONS_FILE.read_text(encoding="utf-8"))
+        return set(data.get("contains", []))
+    except Exception:
+        return set()
+
+
+def add_global_exclusion(substring: str) -> None:
+    current = _get_user_exclusions()
+    if substring not in current:
+        current.add(substring)
+        data = {"contains": sorted(list(current))}
+        EXCLUSIONS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def _is_valid_url(href: str) -> bool:
+    if not href: return False
+    href_lower = href.lower().strip()
+
+    if href_lower in BASE_EXCLUSIONS["exact"]: return False
+    for exclusion in BASE_EXCLUSIONS["contains"]:
+        if exclusion in href_lower: return False
+
+    user_exc = _get_user_exclusions()
+    for exclusion in user_exc:
+        if exclusion.lower() in href_lower: return False
+
+    return True
+
+
+def _normalize_url(base_context_url: str, href: str) -> str:
+    href = href.strip()
+    if href.startswith("http") or href.startswith("https"):
+        return href
+    return urljoin(BASE_URL, href)
+
+
+def _fetch_html(url: str) -> str | None:
+    try:
+        resp = requests.get(url, timeout=30, verify=False)
+        if resp.status_code == 200:
+            return resp.text
+    except Exception:
+        pass
+    return None
+
+
+def _resolve_and_extract_id(url: str) -> str | None:
+    if not url: return None
+    if "docId=" in url:
+        try:
+            parsed = urlparse(url)
+            qs = parse_qs(parsed.query)
+            if "docId" in qs: return qs["docId"][0]
+        except Exception:
+            pass
+
+    if "documento.php" in url:
+        try:
+            resp = requests.head(url, allow_redirects=True, timeout=10, verify=False)
+            final_url = resp.url
+            if "docId=" in final_url:
+                parsed = urlparse(final_url)
+                qs = parse_qs(parsed.query)
+                if "docId" in qs: return qs["docId"][0]
+        except Exception:
+            pass
+
+    return None
+
+
+def _extract_links_from_html_table(html: str, context_url: str) -> List[Dict[str, str]]:
+    soup = BeautifulSoup(html, "html.parser")
+    links_encontrados = []
+
+    tablas = soup.find_all("table")
+    for tabla in tablas:
+        if tabla.find("table"): continue
+
+        filas = tabla.find_all("tr")
+        for fila in filas:
+            celdas = fila.find_all(["td", "th"])
+            if not celdas: continue
+
+            enlace = fila.find("a", href=True)
+            if not enlace: continue
+
+            href = enlace["href"]
+            if not _is_valid_url(href): continue
+
+            full_url = _normalize_url(context_url, href)
+            texto_enlace = enlace.get_text(" ", strip=True)
+
+            extra_info = []
+            for celda in celdas:
+                txt = celda.get_text(" ", strip=True)
+                if len(txt) > 200: continue
+                if txt and txt != texto_enlace:
+                    clean_txt = " ".join(txt.split())
+                    extra_info.append(clean_txt)
+
+            links_encontrados.append({
+                "titulo": texto_enlace or "Documento vinculado",
+                "url": full_url,
+                "origen": "html",
+                "info_extra": " | ".join(extra_info[:3])
+            })
+    return links_encontrados
+
+
+def _extract_links_from_pdf_file(file_path: Path) -> List[Dict[str, str]]:
+    if not PYPDF_AVAILABLE or not file_path.exists():
+        return []
+    links = []
+    try:
+        reader = PdfReader(str(file_path))
+        for page in reader.pages:
+            if "/Annots" in page:
+                for annot in page["/Annots"]:
+                    obj = annot.get_object()
+                    if "/A" in obj and "/URI" in obj["/A"]:
+                        uri = obj["/A"]["/URI"]
+                        if _is_valid_url(uri):
+                            links.append({
+                                "titulo": "Enlace en PDF",
+                                "url": uri,
+                                "origen": "pdf_interno"
+                            })
+    except Exception:
+        pass
+    return links
+
+
+# =========================
+# Lógica Principal (Workers + Guardado Incremental)
+# =========================
+
+def _process_doc_attachments(doc: dict, detect_dir: Path, log: Callable | None) -> None:
+    anexos_list = []
+    vinculados_list = []
+    urls_vistas = set()
+
+    doc_titulo = str(doc.get("titulo", "Doc"))[:40]
+
+    parent_url = doc.get("URL_documento")
+    parent_doc_id = _resolve_and_extract_id(parent_url) if parent_url else None
+
+    # 1. ANEXOS
+    url_anexos = doc.get("anexos_expediente")
+    if url_anexos and _is_valid_url(url_anexos):
+        html = _fetch_html(url_anexos)
+        if html:
+            encontrados = _extract_links_from_html_table(html, url_anexos)
+            for item in encontrados:
+                if item["url"] not in urls_vistas:
+                    anexos_list.append(item)
+                    urls_vistas.add(item["url"])
+
+    # 2. DOC DIGITAL
+    formato = str(doc.get("formato", "")).lower()
+    url_doc = doc.get("URL_documento")
+    if formato == "doc digital" and url_doc and _is_valid_url(url_doc):
+        html = _fetch_html(url_doc)
+        if html:
+            encontrados = _extract_links_from_html_table(html, url_doc)
+            for item in encontrados:
+                link_id = _resolve_and_extract_id(item["url"])
+                if parent_doc_id and link_id and parent_doc_id == link_id: continue
+                if item["url"] not in urls_vistas:
+                    item["tipo"] = "vinculado_html"
+                    vinculados_list.append(item)
+                    urls_vistas.add(item["url"])
+
+    # 3. PDF LOCAL
+    ruta_local = doc.get("ruta")
+    if ruta_local:
+        try:
+            ruta_clean = str(ruta_local).replace("\\", "/")
+            path_obj = Path(ruta_clean)
+            if not path_obj.is_absolute():
+                path_obj = detect_dir / path_obj
+
+            if path_obj.exists() and path_obj.suffix.lower() == ".pdf":
+                pdf_links = _extract_links_from_pdf_file(path_obj)
+                for item in pdf_links:
+                    link_id = _resolve_and_extract_id(item["url"])
+                    if parent_doc_id and link_id and parent_doc_id == link_id: continue
+                    if item["url"] not in urls_vistas:
+                        item["tipo"] = "vinculado_pdf"
+                        vinculados_list.append(item)
+                        urls_vistas.add(item["url"])
+        except Exception:
+            pass
+
+    doc["anexos_detectados"] = anexos_list
+    doc["vinculados_detectados"] = vinculados_list
+
+    if anexos_list or vinculados_list:
+        _log(log, f"[Worker] {doc_titulo}: {len(anexos_list)} anexos, {len(vinculados_list)} vinculados.")
+
+
+def detect_attachments(idp: str, log: Callable[[str], None] | None = None) -> dict:
+    payload = a_detect.load_payload(idp) or {}
+    exeva = payload.get("EXEVA")
+    if not isinstance(exeva, dict):
+        _log(log, f"[EXEVA3] No hay bloque EXEVA para ID {idp}.")
+        return {}
+
+    documentos = exeva.get("documentos") or []
+    total = len(documentos)
+    detect_dir = Path(__file__).resolve().parent / "Detect"
+
+    _log(log, f"[EXEVA3] Iniciando análisis concurrente (10 workers) sobre {total} documentos...")
+
+    SAVE_INTERVAL = 10
+    processed_count = 0
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = []
+        for d in documentos:
+            if isinstance(d, dict):
+                f = executor.submit(_process_doc_attachments, d, detect_dir, log)
+                futures.append(f)
+
+        for f in concurrent.futures.as_completed(futures):
+            try:
+                f.result()
+                processed_count += 1
+                if processed_count % SAVE_INTERVAL == 0:
+                    payload["EXEVA"] = exeva
+                    a_detect.save_result(payload)
+                    _log(log, f"[Persistencia] Progreso parcial guardado ({processed_count}/{total}).")
+            except Exception as e:
+                _log(log, f"[EXEVA3] Error en un hilo: {e}")
+
+    path_res = a_detect.save_result(payload)
+    _log(log, f"[EXEVA3] Proceso finalizado. Datos guardados en: {path_res}")
+    return exeva
+
+from __future__ import annotations
+
+"""
+EXEVA4: Descarga de Anexos y Vinculados detectados (OPTIMIZADO).
+
+Mejoras de rendimiento:
+- Workers reducidos a 4 para evitar saturación de red/disco.
+- Guardado incremental cada 50 ítems (menos I/O de disco).
+- Uso de utilidades centralizadas (utils.py).
+"""
+
+from pathlib import Path
+from typing import Callable
+import concurrent.futures
+
+# Importar utilidades centralizadas
+from .utils import log as _log, sanitize_filename, url_extension, download_binary
+
+from EDJ5_pro import a_detect
+
+
+def _process_link_item(link_obj: dict, parent_n: str, out_base_dir: Path, detect_dir: Path, idp: str,
+                       log: Callable | None) -> bool:
+    url = link_obj.get("url")
+    if not url: return False
+
+    # Si ya tiene ruta válida, saltar
+    if link_obj.get("ruta"):
+        # Validación rápida: si el archivo existe, no hacemos nada.
+        # Si no existe (se borró), download_binary lo bajará de nuevo.
+        try:
+            full_path = detect_dir / link_obj["ruta"]
+            if full_path.exists() and full_path.stat().st_size > 0:
+                return True
+        except Exception:
+            pass
+
+    titulo = link_obj.get("titulo", "archivo")
+
+    # Crear carpeta del documento madre: Archivos_{IDP}/Anexos/{0004}/
+    doc_dir = out_base_dir / parent_n
+    doc_dir.mkdir(parents=True, exist_ok=True)
+
+    # Definir nombre base y extensión
+    safe_title = sanitize_filename(titulo)
+    ext = url_extension(url) or ".bin"
+    target_path = doc_dir / (safe_title + ext)
+
+    _log(log, f"[Worker] Procesando anexo: {safe_title}")
+
+    # Descarga inteligente (verifica si existe, renombra si hay colisión, etc.)
+    # Timeout de 90s para archivos grandes de anexos
+    ok, final_path = download_binary(url, target_path, timeout=90)
+
+    if ok:
+        try:
+            # Calcular ruta relativa para el JSON
+            rel = final_path.resolve().relative_to(detect_dir.resolve())
+            clean_path = str(rel).replace("\\", "/")
+
+            # Guardar en el objeto del link
+            link_obj["ruta"] = clean_path
+
+            # Limpiar marca de error si existía
+            if "error" in link_obj:
+                del link_obj["error"]
+            return True
+        except Exception:
+            pass
+
+    # Si falló, marcar error para que la UI lo muestre en rojo
+    link_obj["error"] = True
+    _log(log, f"[Worker] Error descargando: {url}")
+    return False
+
+
+def download_attachments_files(idp: str, log: Callable[[str], None] | None = None) -> dict:
+    payload = a_detect.load_payload(idp) or {}
+    exeva = payload.get("EXEVA")
+    if not isinstance(exeva, dict):
+        return {}
+
+    documentos = exeva.get("documentos") or []
+    detect_dir = Path(__file__).resolve().parent / "Detect"
+    out_base = detect_dir / f"Archivos_{idp}" / "Anexos"
+
+    tasks = []
+
+    # 1. Recolectar tareas
+    for doc in documentos:
+        if not isinstance(doc, dict): continue
+        n = str(doc.get("n") or "0000").strip()
+
+        # Unificar listas de anexos y vinculados
+        listas = (doc.get("anexos_detectados") or []) + (doc.get("vinculados_detectados") or [])
+
+        for link in listas:
+            # Procesar si no tiene ruta O si tuvo error previo
+            if not link.get("ruta") or link.get("error"):
+                tasks.append((link, n))
+
+    total = len(tasks)
+    if total == 0:
+        _log(log, "[EXEVA4] Todos los anexos están descargados.")
+        return exeva
+
+    _log(log, f"[EXEVA4] Iniciando descarga de {total} anexos (4 workers)...")
+
+    # OPTIMIZACIÓN: Intervalo de guardado más largo para no saturar disco
+    SAVE_INTERVAL = 50
+    processed = 0
+
+    # OPTIMIZACIÓN: Menos workers para estabilidad en descargas pesadas
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = []
+        for link_obj, parent_n in tasks:
+            f = executor.submit(_process_link_item, link_obj, parent_n, out_base, detect_dir, idp, log)
+            futures.append(f)
+
+        for f in concurrent.futures.as_completed(futures):
+            try:
+                f.result()
+                processed += 1
+
+                # Guardado parcial menos frecuente
+                if processed % SAVE_INTERVAL == 0:
+                    a_detect.save_result(payload)
+                    _log(log, f"[Persistencia] Progreso anexos: {processed}/{total}")
+
+            except Exception as e:
+                _log(log, f"Error en hilo: {e}")
+
+    # Guardado final asegurado
+    path_res = a_detect.save_result(payload)
+    _log(log, f"[EXEVA4] Proceso finalizado. Datos actualizados.")
+
+    return exeva
+
+
+def download_single_attachment(idp: str, parent_n: str, link_obj: dict,
+                               log: Callable[[str], None] | None = None) -> bool:
+    """Descarga un único anexo (para el botón Reintentar de la UI)."""
+    detect_dir = Path(__file__).resolve().parent / "Detect"
+    out_base = detect_dir / f"Archivos_{idp}" / "Anexos"
+
+    # Forzar descarga borrando ruta previa si existe
+    if "ruta" in link_obj:
+        del link_obj["ruta"]
+
+    return _process_link_item(link_obj, parent_n, out_base, detect_dir, idp, log)
