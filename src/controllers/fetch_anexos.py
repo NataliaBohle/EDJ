@@ -7,6 +7,7 @@ Usa utilidades centralizadas.
 
 import concurrent.futures
 import json
+import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Set
 from urllib.parse import parse_qs, urljoin, urlparse
@@ -22,8 +23,6 @@ try:
     PYPDF_AVAILABLE = True
 except ImportError:
     PYPDF_AVAILABLE = False
-
-from EDJ5_pro import a_detect
 
 # =========================
 # Configuración y Filtros
@@ -59,6 +58,27 @@ BASE_EXCLUSIONS = {
 def _log(cb: Callable[[str], None] | None, message: str) -> None:
     if cb:
         cb(message)
+
+
+def _get_exeva_json_path(idp: str) -> Path:
+    return Path(os.getcwd()) / "Ebook" / idp / "EXEVA" / f"{idp}_EXEVA.json"
+
+
+def _load_payload(idp: str) -> dict:
+    path = _get_exeva_json_path(idp)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_result(payload: dict, idp: str) -> Path:
+    path = _get_exeva_json_path(idp)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=4, ensure_ascii=False), encoding="utf-8")
+    return path
 
 
 def _get_user_exclusions() -> Set[str]:
@@ -266,7 +286,7 @@ def _process_doc_attachments(doc: dict, detect_dir: Path, log: Callable | None) 
 
 
 def detect_attachments(idp: str, log: Callable[[str], None] | None = None) -> dict:
-    payload = a_detect.load_payload(idp) or {}
+    payload = _load_payload(idp) or {}
     exeva = payload.get("EXEVA")
     if not isinstance(exeva, dict):
         _log(log, f"[EXEVA3] No hay bloque EXEVA para ID {idp}.")
@@ -294,12 +314,12 @@ def detect_attachments(idp: str, log: Callable[[str], None] | None = None) -> di
                 processed_count += 1
                 if processed_count % SAVE_INTERVAL == 0:
                     payload["EXEVA"] = exeva
-                    a_detect.save_result(payload)
+                    _save_result(payload, idp)
                     _log(log, f"[Persistencia] Progreso parcial guardado ({processed_count}/{total}).")
             except Exception as e:
                 _log(log, f"[EXEVA3] Error en un hilo: {e}")
 
-    path_res = a_detect.save_result(payload)
+    path_res = _save_result(payload, idp)
     _log(log, f"[EXEVA3] Proceso finalizado. Datos guardados en: {path_res}")
     return exeva
 

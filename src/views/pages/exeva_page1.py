@@ -13,6 +13,7 @@ from src.views.components.command_bar import CommandBar
 from src.views.components.timeline import Timeline
 from src.views.components.results_table import EditableTableCard
 from src.views.components.pdf_viewer import PdfViewer
+from src.views.components.links_review import LinksReviewDialog
 
 # Controladores y Modelos de antgen
 from src.controllers.fetch_exeva import FetchExevaController
@@ -146,6 +147,7 @@ class Exeva1Page(QWidget):
                 ("fecha", "Fecha"),
                 ("anexos_detectados", "Anexos"),
                 ("vinculados_detectados", "Vinculados"),
+                ("ver_anexos", "Ver anexos"),
                 ("ver_doc", "Ver doc"),
             ],
             parent=self.content_widget,
@@ -287,6 +289,7 @@ class Exeva1Page(QWidget):
                 "fecha": doc.get("fecha", ""),
                 "anexos_detectados": str(len(doc.get("anexos_detectados") or [])),
                 "vinculados_detectados": str(len(doc.get("vinculados_detectados") or [])),
+                "ver_anexos": "",
                 "ver_doc": "",
             }
             for doc in documentos
@@ -305,8 +308,33 @@ class Exeva1Page(QWidget):
                     button.setObjectName("BtnActionSecondary")
                     button.clicked.connect(partial(self._open_pdf_viewer, doc))
                     self.results_table.table.setCellWidget(row_idx, ver_col, button)
+            anexos_col = next(
+                (idx for idx, (key, _label) in enumerate(self.results_table.columns) if key == "ver_anexos"),
+                None,
+            )
+            if anexos_col is not None:
+                for row_idx, doc in enumerate(documentos):
+                    button = QPushButton("Ver anexos", self.results_table.table)
+                    button.setObjectName("BtnActionSecondary")
+                    button.clicked.connect(partial(self._open_links_review, doc))
+                    self.results_table.table.setCellWidget(row_idx, anexos_col, button)
             self.results_table.table.resizeColumnsToContents()
 
     def _open_pdf_viewer(self, doc_data: dict) -> None:
         viewer = PdfViewer(doc_data, self, project_id=self.current_project_id)
         viewer.exec()
+
+    def _open_links_review(self, doc_data: dict) -> None:
+        anexos = doc_data.get("anexos_detectados") or []
+        vinculados = doc_data.get("vinculados_detectados") or []
+        links = []
+        for item in anexos:
+            payload = dict(item)
+            payload.setdefault("tipo", "anexo")
+            links.append(payload)
+        for item in vinculados:
+            payload = dict(item)
+            payload.setdefault("tipo", "vinculado")
+            links.append(payload)
+        dialog = LinksReviewDialog(links, self)
+        dialog.exec()
