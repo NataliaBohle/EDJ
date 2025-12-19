@@ -208,60 +208,56 @@ class PdfViewer(QDialog):
         if not QDesktopServices.openUrl(url):
             self.viewer_status.setText("No se pudo abrir la aplicación por defecto.")
 
+    # ---------- rotation ----------
+    def _rotate_current_page(self, delta: int) -> None:
+        if self.pdf_document.status() != QPdfDocument.Status.Ready:
+            return
+        total = self.pdf_document.pageCount()
+        if total <= 0:
+            return
+        page = max(0, min(self._current_page, total - 1))
+        self._apply_rotation_delta([page], delta)
 
-# ---------- rotation ----------
-def _rotate_current_page(self, delta: int) -> None:
-    if self.pdf_document.status() != QPdfDocument.Status.Ready:
-        return
-    total = self.pdf_document.pageCount()
-    if total <= 0:
-        return
-    page = max(0, min(self._current_page, total - 1))
-    self._apply_rotation_delta([page], delta)
+    def _rotate_all_pages(self, delta: int) -> None:
+        if self.pdf_document.status() != QPdfDocument.Status.Ready:
+            return
+        total = self.pdf_document.pageCount()
+        if total <= 0:
+            return
+        self._apply_rotation_delta(list(range(total)), delta)
 
+    def _apply_rotation_delta(self, pages: list[int], delta: int) -> None:
+        # Normalizar delta a múltiplos de 90
+        step = delta % 360
+        if step not in (0, 90, 180, 270):
+            step = 90 if delta > 0 else 270
 
-def _rotate_all_pages(self, delta: int) -> None:
-    if self.pdf_document.status() != QPdfDocument.Status.Ready:
-        return
-    total = self.pdf_document.pageCount()
-    if total <= 0:
-        return
-    self._apply_rotation_delta(list(range(total)), delta)
+        changed = False
+        for p in pages:
+            cur = self._page_rotation_delta.get(p, 0) % 360
+            nxt = (cur + step) % 360
+            if nxt == 0:
+                if p in self._page_rotation_delta:
+                    del self._page_rotation_delta[p]
+                    changed = True
+            else:
+                if cur != nxt:
+                    self._page_rotation_delta[p] = nxt
+                    changed = True
 
+        if not changed:
+            return
 
-def _apply_rotation_delta(self, pages: list[int], delta: int) -> None:
-    # Normalizar delta a múltiplos de 90
-    step = delta % 360
-    if step not in (0, 90, 180, 270):
-        step = 90 if delta > 0 else 270
-
-    changed = False
-    for p in pages:
-        cur = self._page_rotation_delta.get(p, 0) % 360
-        nxt = (cur + step) % 360
-        if nxt == 0:
-            if p in self._page_rotation_delta:
-                del self._page_rotation_delta[p]
-                changed = True
+        self._dirty_rotations = True
+        self._thumb_cache.clear()
+        if self._mode == "grid":
+            self._render_grid()
+            self.viewer_status.setText(f"Vista en grid activa (zoom {self.zoom_slider.value()}%).")
         else:
-            if cur != nxt:
-                self._page_rotation_delta[p] = nxt
-                changed = True
-
-    if not changed:
-        return
-
-    self._dirty_rotations = True
-    self._thumb_cache.clear()
-    if self._mode == "grid":
-        self._render_grid()
-        self.viewer_status.setText(f"Vista en grid activa (zoom {self.zoom_slider.value()}%).")
-    else:
-        self._render_current_page()
-        self.viewer_status.setText("Vista normal activa.")
+            self._render_current_page()
+            self.viewer_status.setText("Vista normal activa.")
 
     # ---------- path / load ----------
-
     def _resolve_doc_path(self, ruta: str | None, project_id: str | None) -> str:
         if not ruta:
             return ""
@@ -394,8 +390,11 @@ def _apply_rotation_delta(self, pages: list[int], delta: int) -> None:
         # Un tope para no generar imágenes gigantes (mantener usabilidad)
         viewport_w = min(viewport_w, 1600)
 
-        pm = self._render_page_pixmap(self._current_page, viewport_w,
-                                      self._page_rotation_delta.get(self._current_page, 0))
+        pm = self._render_page_pixmap(
+            self._current_page,
+            viewport_w,
+            self._page_rotation_delta.get(self._current_page, 0),
+        )
         if pm is None:
             self.page_label.setText("No se pudo renderizar la página.")
             return
@@ -478,22 +477,20 @@ def _apply_rotation_delta(self, pages: list[int], delta: int) -> None:
                 col = 0
                 row += 1
 
+    def _on_thumb_selected(self, page_index: int) -> None:
+        # Selección en grid (no cambia de vista)
+        self._current_page = max(0, page_index)
+        self.page_selector.blockSignals(True)
+        self.page_selector.setValue(self._current_page + 1)
+        self.page_selector.blockSignals(False)
+        if self._mode == "grid":
+            self._thumb_cache.clear()
+            self._render_grid()
 
-def _on_thumb_selected(self, page_index: int) -> None:
-    # Selección en grid (no cambia de vista)
-    self._current_page = max(0, page_index)
-    self.page_selector.blockSignals(True)
-    self.page_selector.setValue(self._current_page + 1)
-    self.page_selector.blockSignals(False)
-    if self._mode == "grid":
-        self._thumb_cache.clear()
-        self._render_grid()
-
-
-def _on_thumb_open(self, page_index: int) -> None:
-    # Doble click: abrir en vista normal
-    self._current_page = max(0, page_index)
-    self.page_selector.blockSignals(True)
-    self.page_selector.setValue(self._current_page + 1)
-    self.page_selector.blockSignals(False)
-    self._set_mode("normal")
+    def _on_thumb_open(self, page_index: int) -> None:
+        # Doble click: abrir en vista normal
+        self._current_page = max(0, page_index)
+        self.page_selector.blockSignals(True)
+        self.page_selector.setValue(self._current_page + 1)
+        self.page_selector.blockSignals(False)
+        self._set_mode("normal")
