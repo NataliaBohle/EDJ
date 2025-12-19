@@ -5,16 +5,15 @@ EXEVA3: Detección de Anexos y Vinculados (REFACTORIZADO).
 Usa utilidades centralizadas.
 """
 
-from typing import Callable, Dict, Any, List, Set
+import concurrent.futures
+import json
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Set
+from urllib.parse import parse_qs, urljoin, urlparse
+
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse, urljoin, parse_qs
-from pathlib import Path
-import json
-import concurrent.futures
-
-# Importar utilidades (Log y Configuración SSL centralizada)
-from .utils import log as _log
+from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 # Intentar importar pypdf
 try:
@@ -55,6 +54,11 @@ BASE_EXCLUSIONS = {
         "verificarFirma",
     },
 }
+
+
+def _log(cb: Callable[[str], None] | None, message: str) -> None:
+    if cb:
+        cb(message)
 
 
 def _get_user_exclusions() -> Set[str]:
@@ -299,4 +303,76 @@ def detect_attachments(idp: str, log: Callable[[str], None] | None = None) -> di
     _log(log, f"[EXEVA3] Proceso finalizado. Datos guardados en: {path_res}")
     return exeva
 
-from __future__ import annotations
+
+class AnexosDetectWorker(QObject):
+    finished_signal = pyqtSignal(bool, dict)
+    log_signal = pyqtSignal(str)
+
+    def __init__(self, project_id: str):
+        super().__init__()
+        self.project_id = project_id
+
+    @pyqtSlot()
+    def run(self) -> None:
+        success = False
+        result_data: dict = {}
+        try:
+            result_data = detect_attachments(self.project_id, log=self.log_signal.emit)
+            if result_data:
+                success = True
+                self.log_signal.emit("✅ Detección de anexos completada.")
+            else:
+                self.log_signal.emit("⚠️ No se detectaron anexos para este expediente.")
+        except Exception as exc:
+            self.log_signal.emit(f"❌ Error inesperado durante detección de anexos: {exc}")
+        self.finished_signal.emit(success, result_data)
+
+
+class FetchAnexosController(QObject):
+    detection_started = pyqtSignal()
+    detection_finished = pyqtSignal(bool, dict)
+    log_requested = pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.worker: AnexosDetectWorker | None = None
+        self.thread: QThread | None = None
+        self._finished_dispatched = False
+
+    def start_detection(self, project_id: str) -> None:
+        if self.thread and self.thread.isRunning():
+            self.log_requested.emit("⚠️ Detección de anexos ya está en curso.")
+            return
+
+        self.detection_started.emit()
+        self.thread = QThread()
+        self.worker = AnexosDetectWorker(project_id)
+        self._finished_dispatched = False
+
+        self.worker.moveToThread(self.thread)
+        self.thread.started.connect(self.worker.run)
+
+        self.worker.log_signal.connect(self.log_requested.emit)
+        self.worker.finished_signal.connect(self._on_finished)
+        self.thread.finished.connect(self._on_thread_finished)
+
+        self.worker.finished_signal.connect(self.thread.quit)
+        self.worker.finished_signal.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+        self.thread.finished.connect(self._reset_thread_state)
+
+        self.thread.start()
+
+    def _reset_thread_state(self) -> None:
+        self.thread = None
+        self.worker = None
+
+    @pyqtSlot(bool, dict)
+    def _on_finished(self, success: bool, exeva_data: dict) -> None:
+        self._finished_dispatched = True
+        self.detection_finished.emit(success, exeva_data)
+
+    @pyqtSlot()
+    def _on_thread_finished(self) -> None:
+        if not self._finished_dispatched:
+            self.detection_finished.emit(False, {})

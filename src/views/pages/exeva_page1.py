@@ -16,6 +16,7 @@ from src.views.components.pdf_viewer import PdfViewer
 
 # Controladores y Modelos de antgen
 from src.controllers.fetch_exeva import FetchExevaController
+from src.controllers.fetch_anexos import FetchAnexosController
 from src.models.project_data_manager import ProjectDataManager
 
 
@@ -44,7 +45,10 @@ class Exeva1Page(QWidget):
         self.fetch_controller.log_requested.connect(self.log_requested.emit)
         self.fetch_controller.extraction_started.connect(self._on_extraction_started)
         self.fetch_controller.extraction_finished.connect(self._on_extraction_finished)
-        self.fetch_anexos_controller = None
+        self.fetch_anexos_controller = FetchAnexosController(self)
+        self.fetch_anexos_controller.log_requested.connect(self.log_requested.emit)
+        self.fetch_anexos_controller.detection_started.connect(self._on_anexos_detection_started)
+        self.fetch_anexos_controller.detection_finished.connect(self._on_anexos_detection_finished)
         self.down_anexos_controller = None
 
     def _setup_ui(self):
@@ -140,6 +144,8 @@ class Exeva1Page(QWidget):
                 ("titulo", "Nombre"),
                 ("remitido_por", "Remitido por"),
                 ("fecha", "Fecha"),
+                ("anexos_detectados", "Anexos"),
+                ("vinculados_detectados", "Vinculados"),
                 ("ver_doc", "Ver doc"),
             ],
             parent=self.content_widget,
@@ -213,7 +219,7 @@ class Exeva1Page(QWidget):
     def _on_fetchanexos_clicked(self):
         if not self.current_project_id:
             return
-        self.log_requested.emit("🚧 Detectar anexos pendiente de implementación.")
+        self.fetch_anexos_controller.start_detection(self.current_project_id)
 
     def _on_downanexos_clicked(self):
         if not self.current_project_id:
@@ -253,6 +259,24 @@ class Exeva1Page(QWidget):
             self._set_results_table([])
             QMessageBox.critical(self, "Error", "Fallo en la extracción de EXEVA.")
 
+    def _on_anexos_detection_started(self):
+        self.btn_fetchanexos.setEnabled(False)
+        self.pbar.setVisible(True)
+        self.pbar.setRange(0, 0)
+
+    def _on_anexos_detection_finished(self, success: bool, _data: dict):
+        self.pbar.setVisible(False)
+        self.btn_fetchanexos.setEnabled(True)
+        self.pbar.setRange(0, 100)
+
+        if success:
+            exeva_payload = self.data_manager.load_exeva_data(self.current_project_id)
+            documentos = exeva_payload.get("EXEVA", {}).get("documentos", [])
+            self._set_results_table(documentos)
+            self.log_requested.emit("✅ Anexos detectados y tabla actualizada.")
+        else:
+            self.log_requested.emit("⚠️ No se pudieron detectar anexos.")
+
     def _set_results_table(self, documentos: list[dict]) -> None:
         rows = [
             {
@@ -261,6 +285,8 @@ class Exeva1Page(QWidget):
                 "titulo": doc.get("titulo", ""),
                 "remitido_por": doc.get("remitido_por", ""),
                 "fecha": doc.get("fecha", ""),
+                "anexos_detectados": str(len(doc.get("anexos_detectados") or [])),
+                "vinculados_detectados": str(len(doc.get("vinculados_detectados") or [])),
                 "ver_doc": "",
             }
             for doc in documentos
