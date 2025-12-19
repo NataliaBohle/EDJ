@@ -265,7 +265,9 @@ class PdfViewer(QDialog):
         if not self._doc_path:
             return None
         path = Path(self._doc_path)
-        return path.with_suffix(f"{path.suffix}.view.json")
+        if path.suffix:
+            return path.with_suffix(f"{path.suffix}.view.json")
+        return path.with_name(f"{path.name}.view.json")
 
     def _load_view_state(self) -> None:
         path = self._view_state_path()
