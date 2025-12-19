@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QUrl, QSize, QTimer, pyqtSignal
-from PyQt6.QtGui import QDesktopServices, QPixmap, QTransform
+from PyQt6.QtGui import QDesktopServices, QPixmap, QTransform, QImage, QPainter
 from PyQt6.QtPdf import QPdfDocument
 from PyQt6.QtWidgets import (
     QDialog,
@@ -61,6 +61,8 @@ class PdfViewer(QDialog):
         self._current_page = 0  # 0-index
         self._thumb_target_width = 220  # base
         self._thumb_cache: dict[tuple[int, int, int], QPixmap] = {}  # (page, width, rotation)->pixmap
+        self._thumb_labels: dict[int, _ThumbLabel] = {}
+        self._current_render_key: tuple[int, int, int] | None = None
 
         title = doc_data.get("titulo") if isinstance(doc_data, dict) else None
         ruta = doc_data.get("ruta") if isinstance(doc_data, dict) else None
@@ -196,11 +198,16 @@ class PdfViewer(QDialog):
             self.normal_scroll.hide()
             self.grid_scroll.show()
             self._render_grid()
-            self.viewer_status.setText(f"Vista en grid activa (zoom {self.zoom_slider.value()}%).")
         else:
             self.grid_scroll.hide()
             self.normal_scroll.show()
             self._render_current_page()
+        self._update_view_status()
+
+    def _update_view_status(self) -> None:
+        if self._mode == "grid":
+            self.viewer_status.setText(f"Vista en grid activa (zoom {self.zoom_slider.value()}%).")
+        else:
             self.viewer_status.setText("Vista normal activa.")
 
     def _open_default_app(self) -> None:
@@ -254,12 +261,14 @@ class PdfViewer(QDialog):
 
         self._dirty_rotations = True
         self._thumb_cache.clear()
+        self._refresh_view()
+
+    def _refresh_view(self) -> None:
         if self._mode == "grid":
             self._render_grid()
-            self.viewer_status.setText(f"Vista en grid activa (zoom {self.zoom_slider.value()}%).")
         else:
             self._render_current_page()
-            self.viewer_status.setText("Vista normal activa.")
+        self._update_view_status()
 
     # ---------- path / load ----------
     def _view_state_path(self) -> Path | None:
@@ -432,9 +441,6 @@ class PdfViewer(QDialog):
             if img.isNull():
                 return None
 
-            # Algunos backends dejan el fondo transparente; compón sobre blanco para evitar "negros"
-            from PyQt6.QtGui import QImage, QPainter
-
             if img.hasAlphaChannel():
                 base = QImage(img.size(), QImage.Format.Format_RGB32)
                 base.fill(Qt.GlobalColor.white)
@@ -468,14 +474,16 @@ class PdfViewer(QDialog):
         # Un tope para no generar imágenes gigantes (mantener usabilidad)
         viewport_w = min(viewport_w, 1600)
 
-        pm = self._render_page_pixmap(
-            self._current_page,
-            viewport_w,
-            self._page_rotation_delta.get(self._current_page, 0),
-        )
+        rotation = self._page_rotation_delta.get(self._current_page, 0)
+        render_key = (self._current_page, viewport_w, rotation)
+        if self._current_render_key == render_key and self.page_label.pixmap() is not None:
+            return
+
+        pm = self._render_page_pixmap(self._current_page, viewport_w, rotation)
         if pm is None:
             self.page_label.setText("No se pudo renderizar la página.")
             return
+        self._current_render_key = render_key
         self.page_label.setPixmap(pm)
         self.page_label.setFixedSize(pm.size())
         self.page_label.adjustSize()
@@ -485,6 +493,7 @@ class PdfViewer(QDialog):
         # Re-render de página actual al redimensionar para mantener legibilidad
         if self._mode == "normal":
             self._thumb_cache.clear()
+            self._current_render_key = None
             self._render_current_page()
 
     def closeEvent(self, event):  # type: ignore[override]
@@ -499,6 +508,7 @@ class PdfViewer(QDialog):
         self._grid_rerender_timer.start(140)
 
     def _clear_grid(self) -> None:
+        self._thumb_labels.clear()
         while self.grid_layout.count():
             item = self.grid_layout.takeAt(0)
             w = item.widget()
@@ -535,8 +545,7 @@ class PdfViewer(QDialog):
 
             thumb = _ThumbLabel(i, wrapper)
             thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            border = "2px solid #2f74ff" if i == self._current_page else "1px solid #bbb"
-            thumb.setStyleSheet(f"background: #fff; border: {border};")
+            self._apply_thumb_style(thumb, i == self._current_page)
             pm = self._render_page_pixmap(i, target_w, self._page_rotation_delta.get(i, 0))
             if pm is not None:
                 thumb.setPixmap(pm)
@@ -548,6 +557,7 @@ class PdfViewer(QDialog):
             thumb.clicked.connect(self._on_thumb_selected)
             thumb.doubleClicked.connect(self._on_thumb_open)
             v.addWidget(thumb)
+            self._thumb_labels[i] = thumb
 
             num = QLabel(str(i + 1), wrapper)
             num.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -563,18 +573,26 @@ class PdfViewer(QDialog):
 
     def _on_thumb_selected(self, page_index: int) -> None:
         # Selección en grid (no cambia de vista)
-        self._current_page = max(0, page_index)
-        self.page_selector.blockSignals(True)
-        self.page_selector.setValue(self._current_page + 1)
-        self.page_selector.blockSignals(False)
-        if self._mode == "grid":
-            self._thumb_cache.clear()
-            self._render_grid()
+        self._set_current_page(page_index)
+        self._update_grid_selection()
 
     def _on_thumb_open(self, page_index: int) -> None:
         # Doble click: abrir en vista normal
+        self._set_current_page(page_index)
+        self._set_mode("normal")
+
+    def _set_current_page(self, page_index: int) -> None:
         self._current_page = max(0, page_index)
         self.page_selector.blockSignals(True)
         self.page_selector.setValue(self._current_page + 1)
         self.page_selector.blockSignals(False)
-        self._set_mode("normal")
+
+    def _update_grid_selection(self) -> None:
+        if self._mode != "grid":
+            return
+        for idx, label in self._thumb_labels.items():
+            self._apply_thumb_style(label, idx == self._current_page)
+
+    def _apply_thumb_style(self, label: _ThumbLabel, selected: bool) -> None:
+        border = "2px solid #2f74ff" if selected else "1px solid #bbb"
+        label.setStyleSheet(f"background: #fff; border: {border};")
