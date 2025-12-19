@@ -1,7 +1,7 @@
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QLabel, QHBoxLayout,
-    QProgressBar, QFrame
+    QProgressBar, QFrame, QMessageBox, QAbstractItemView, QHeaderView
 )
 
 # Componentes
@@ -9,8 +9,10 @@ from src.views.components.chapter import Chapter
 from src.views.components.status_bar import StatusBar
 from src.views.components.command_bar import CommandBar
 from src.views.components.timeline import Timeline
+from src.views.components.results_table import EditableTableCard
 
 # Controladores y Modelos de antgen
+from src.controllers.fetch_exeva import FetchExevaController
 from src.models.project_data_manager import ProjectDataManager
 
 
@@ -35,7 +37,10 @@ class Exeva1Page(QWidget):
         self.data_manager.log_requested.connect(self.log_requested.emit)
 
         # Controladores a implementar en siguientes iteraciones
-        self.fetch_controller = None
+        self.fetch_controller = FetchExevaController(self)
+        self.fetch_controller.log_requested.connect(self.log_requested.emit)
+        self.fetch_controller.extraction_started.connect(self._on_extraction_started)
+        self.fetch_controller.extraction_finished.connect(self._on_extraction_finished)
         self.fetch_anexos_controller = None
         self.down_anexos_controller = None
 
@@ -124,6 +129,25 @@ class Exeva1Page(QWidget):
         self.lbl_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.content_layout.addWidget(self.lbl_placeholder)
 
+        self.results_table = EditableTableCard(
+            "Resultados EXEVA",
+            columns=[
+                ("n", "N° Documento"),
+                ("folio", "Folio"),
+                ("titulo", "Nombre"),
+                ("remitido_por", "Remitido por"),
+                ("fecha", "Fecha"),
+            ],
+            parent=self.content_widget,
+        )
+        self.results_table.btn_add_row.setVisible(False)
+        self.results_table.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        header = self.results_table.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header.setStretchLastSection(False)
+        self.results_table.setVisible(False)
+        self.content_layout.addWidget(self.results_table)
+
         self.scroll.setWidget(self.content_widget)
         layout.addWidget(self.scroll)
 
@@ -135,6 +159,7 @@ class Exeva1Page(QWidget):
 
         data = self.data_manager.load_data(pid)
         exeva_section = data.get("expedientes", {}).get("EXEVA", {})
+        exeva_payload = self.data_manager.load_exeva_data(pid)
 
         step_idx = exeva_section.get("step_index", 0)
         step_status = exeva_section.get("step_status", "detectado")
@@ -142,6 +167,21 @@ class Exeva1Page(QWidget):
 
         self.timeline.set_current_step(step_idx, step_status)
         self.status_bar.set_status(global_status)
+
+        documentos = exeva_payload.get("EXEVA", {}).get("documentos", [])
+        has_docs = bool(documentos)
+
+        if has_docs:
+            total = len(documentos)
+            self.lbl_placeholder.setText(f"Expediente descargado: {total} documentos detectados.")
+            self.btn_fetchexeva.setText("Volver a Descargar")
+        else:
+            self.lbl_placeholder.setText(
+                "Los resultados del expediente EXEVA aparecerán aquí una vez implementada la extracción."
+            )
+            self.btn_fetchexeva.setText("1. Descargar Expediente")
+        self.lbl_placeholder.setVisible(True)
+        self._set_results_table(documentos)
         self.is_loading = False
 
     def save_status_change(self, new_status: str):
@@ -163,7 +203,8 @@ class Exeva1Page(QWidget):
     def _on_fetchexeva_clicked(self):
         if not self.current_project_id:
             return
-        self.log_requested.emit("🚧 FetchExeva pendiente de implementación.")
+        self.status_bar.set_status("edicion")
+        self.fetch_controller.start_extraction(self.current_project_id)
 
     def _on_fetchanexos_clicked(self):
         if not self.current_project_id:
@@ -174,3 +215,53 @@ class Exeva1Page(QWidget):
         if not self.current_project_id:
             return
         self.log_requested.emit("🚧 Descarga de anexos pendiente de implementación.")
+
+    # --- SLOTS ASYNC ---
+
+    def _on_extraction_started(self):
+        self.btn_fetchexeva.setEnabled(False)
+        self.pbar.setVisible(True)
+        self.pbar.setRange(0, 0)
+        self.lbl_placeholder.setVisible(False)
+
+    def _on_extraction_finished(self, success: bool, data: dict):
+        self.pbar.setVisible(False)
+        self.btn_fetchexeva.setEnabled(True)
+        self.pbar.setRange(0, 100)
+
+        if success:
+            documentos = data.get("EXEVA", {}).get("documentos", [])
+            total = len(documentos)
+            self.lbl_placeholder.setText(f"Expediente descargado: {total} documentos detectados.")
+            self.lbl_placeholder.setVisible(True)
+            self._set_results_table(documentos)
+            self.status_bar.set_status("edicion")
+            self.timeline.set_current_step(1, "edicion")
+            self.data_manager.update_step_status(
+                self.current_project_id, "EXEVA", step_index=1, step_status="edicion", global_status="edicion"
+            )
+            self.btn_fetchexeva.setText("Volver a Descargar")
+        else:
+            self.status_bar.set_status("error")
+            self.timeline.set_current_step(self.timeline.current_step, "error")
+            self.lbl_placeholder.setText("No se pudo descargar el expediente. Intente nuevamente.")
+            self.lbl_placeholder.setVisible(True)
+            self._set_results_table([])
+            QMessageBox.critical(self, "Error", "Fallo en la extracción de EXEVA.")
+
+    def _set_results_table(self, documentos: list[dict]) -> None:
+        rows = [
+            {
+                "n": doc.get("n", ""),
+                "folio": doc.get("folio", ""),
+                "titulo": doc.get("titulo", ""),
+                "remitido_por": doc.get("remitido_por", ""),
+                "fecha": doc.get("fecha", ""),
+            }
+            for doc in documentos
+        ]
+        self.results_table.set_data(rows)
+        has_rows = bool(rows)
+        self.results_table.setVisible(has_rows)
+        if has_rows:
+            self.results_table.table.resizeColumnsToContents()
