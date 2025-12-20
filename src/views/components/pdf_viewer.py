@@ -1,3 +1,7 @@
+'''
+ESTE SCRIPT SE ESTÁ CRASHEANDO AL SELECCIONAR LAS OPCIONES DE ROTACIÓN
+'''
+
 import os
 from pathlib import Path
 
