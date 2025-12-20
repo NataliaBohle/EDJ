@@ -321,8 +321,8 @@ class Exeva1Page(QWidget):
             self.results_table.table.resizeColumnsToContents()
 
     def _open_pdf_viewer(self, doc_data: dict) -> None:
-        viewer = PdfViewer(doc_data, self, project_id=self.current_project_id)
-        viewer.exec()
+        viewer = PdfViewer(doc_data, self, project_id)
+        viewer.show()
 
     def _open_links_review(self, doc_data: dict) -> None:
         anexos = doc_data.get("anexos_detectados") or []

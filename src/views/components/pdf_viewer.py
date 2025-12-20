@@ -1,414 +1,160 @@
-'''
-ESTE SCRIPT SE ESTÁ CRASHEANDO AL SELECCIONAR LAS OPCIONES DE ROTACIÓN
-'''
+# pdf_viewer.py
+# Solo modo lectura (QWebEngine PDF seleccionable).
+# Incluye un solo botón "Organizar Páginas" que abre un componente aparte: page_organizer.py
+#
+# Importante (estabilidad):
+# - NO usa QDialog.exec() (modal) para evitar crashes con QWebEngine.
+# - Se entrega una API "exec()" compatible: internamente hace show() y retorna 0.
+#
+# Requisitos:
+#   pip install PyQt6 PyQt6-WebEngine
+#
+# Integración esperada:
+#   viewer = PdfViewer(doc_data, parent=self, project_id=...)
+#   viewer.exec()  # OK: no bloquea, pero no crashea
+
+from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Optional
 
-from PyQt6.QtCore import Qt, QUrl, QSize, QTimer, pyqtSignal
-from PyQt6.QtGui import QDesktopServices, QPixmap, QTransform
-from PyQt6.QtPdf import QPdfDocument
+from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtWidgets import (
     QDialog,
-    QLabel,
+    QWidget,
     QVBoxLayout,
     QHBoxLayout,
     QPushButton,
-    QSlider,
-    QSpinBox,
-    QScrollArea,
-    QWidget,
-    QGridLayout,
+    QLabel,
+    QMessageBox,
+    QSizePolicy,
 )
 
+from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWebEngineCore import QWebEngineSettings
 
-class _ThumbLabel(QLabel):
-    clicked = pyqtSignal(int)
-
-    def __init__(self, page_index: int, parent=None) -> None:
-        super().__init__(parent)
-        self._page_index = page_index
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-
-    def mousePressEvent(self, event):  # type: ignore[override]
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit(self._page_index)
-        super().mousePressEvent(event)
+from src.views.components.page_organizer import PageOrganizer  # componente aparte
 
 
 class PdfViewer(QDialog):
-    """
-    Visor PDF basado en QPdfDocument (render a imagen) para asegurar:
-      - Conteo de páginas confiable
-      - Rotación real (0/90/180/270)
-      - Vista grid tipo Acrobat (miniaturas en filas/columnas)
-    """
-
-    def __init__(self, doc_data: dict | None = None, parent=None, project_id: str | None = None) -> None:
+    def __init__(self, doc_data: dict | None = None, parent: Optional[QWidget] = None, project_id: str | None = None):
         super().__init__(parent)
-        self.setWindowTitle("Visor PDF")
-        self.setMinimumWidth(420)
 
-        self._mode = "normal"
-        self._rotation = 0  # grados: 0/90/180/270
-        self._current_page = 0  # 0-index
-        self._thumb_target_width = 220  # base
-        self._thumb_cache: dict[tuple[int, int, int], QPixmap] = {}  # (page, width, rotation)->pixmap
+        self._doc_data = doc_data or {}
+        self._project_id = project_id
 
-        title = doc_data.get("titulo") if isinstance(doc_data, dict) else None
-        ruta = doc_data.get("ruta") if isinstance(doc_data, dict) else None
-        self._doc_path = self._resolve_doc_path(ruta, project_id)
+        self._pdf_path = self._resolve_doc_path(self._doc_data.get("ruta"), project_id)
+        title = self._doc_data.get("titulo") or "Documento"
 
-        layout = QVBoxLayout(self)
+        self.setWindowTitle(f"Visor PDF - {title}")
+        self.resize(1280, 820)
 
-        title_label = QLabel(title or "Documento EXEVA", self)
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("font-weight: bold;")
-        layout.addWidget(title_label)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(8, 8, 8, 8)
+        root.setSpacing(8)
 
-        route_label = QLabel(f"Ruta: {ruta or 'Pendiente'}", self)
-        route_label.setWordWrap(True)
-        layout.addWidget(route_label)
+        # ---- Toolbar minimal ----
+        toolbar = QWidget()
+        tl = QHBoxLayout(toolbar)
+        tl.setContentsMargins(0, 0, 0, 0)
+        tl.setSpacing(8)
 
-        # Controls
-        controls = QHBoxLayout()
-        controls.setSpacing(8)
+        self.btn_organize = QPushButton("Organizar Páginas")
+        self.btn_organize.clicked.connect(self._open_organizer)
 
-        self.btn_normal = QPushButton("Vista normal", self)
-        self.btn_normal.clicked.connect(lambda: self._set_mode("normal"))
-        controls.addWidget(self.btn_normal)
+        self.lbl_status = QLabel("")
+        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.lbl_status.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
-        self.btn_grid = QPushButton("Vista grid", self)
-        self.btn_grid.clicked.connect(lambda: self._set_mode("grid"))
-        controls.addWidget(self.btn_grid)
+        tl.addWidget(self.btn_organize)
+        tl.addWidget(self.lbl_status, 1)
 
-        self.btn_open_default = QPushButton("Abrir en aplicación", self)
-        self.btn_open_default.clicked.connect(self._open_default_app)
-        controls.addWidget(self.btn_open_default)
+        root.addWidget(toolbar)
 
-        self.btn_rotate_left = QPushButton("⟲", self)
-        self.btn_rotate_left.setToolTip("Rotar a la izquierda")
-        self.btn_rotate_left.clicked.connect(lambda: self._rotate_pdf(-90))
-        controls.addWidget(self.btn_rotate_left)
+        # ---- WebEngine PDF (lectura) ----
+        self.web = QWebEngineView(self)
+        s = self.web.settings()
+        s.setAttribute(QWebEngineSettings.WebAttribute.PluginsEnabled, True)
+        s.setAttribute(QWebEngineSettings.WebAttribute.PdfViewerEnabled, True)
+        root.addWidget(self.web, 1)
 
-        self.btn_rotate_right = QPushButton("⟳", self)
-        self.btn_rotate_right.setToolTip("Rotar a la derecha")
-        self.btn_rotate_right.clicked.connect(lambda: self._rotate_pdf(90))
-        controls.addWidget(self.btn_rotate_right)
-
-        layout.addLayout(controls)
-
-        # Grid zoom (solo afecta vista grid)
-        zoom_row = QHBoxLayout()
-        zoom_label = QLabel("Zoom grid:", self)
-        zoom_row.addWidget(zoom_label)
-
-        self.zoom_slider = QSlider(Qt.Orientation.Horizontal, self)
-        self.zoom_slider.setRange(50, 200)
-        self.zoom_slider.setValue(100)
-        self.zoom_slider.valueChanged.connect(self._request_grid_rerender)
-        zoom_row.addWidget(self.zoom_slider, stretch=1)
-        layout.addLayout(zoom_row)
-
-        # Document
-        self.pdf_document = QPdfDocument(self)
-        self.pdf_document.statusChanged.connect(self._on_doc_status_changed)
-
-        # Normal view: rendered page inside scroll area
-        self.page_label = QLabel(self)
-        self.page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.page_label.setStyleSheet("background: #444;")  # similar a visor de PDF
-        self.page_label.setMinimumHeight(240)
-
-        self.normal_scroll = QScrollArea(self)
-        self.normal_scroll.setWidgetResizable(True)
-        self.normal_scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.normal_scroll.setWidget(self.page_label)
-
-        # Grid view: thumbnails in a scrollable grid
-        self.grid_container = QWidget(self)
-        self.grid_layout = QGridLayout(self.grid_container)
-        self.grid_layout.setContentsMargins(12, 12, 12, 12)
-        self.grid_layout.setHorizontalSpacing(18)
-        self.grid_layout.setVerticalSpacing(18)
-
-        self.grid_scroll = QScrollArea(self)
-        self.grid_scroll.setWidgetResizable(True)
-        self.grid_scroll.setWidget(self.grid_container)
-
-        layout.addWidget(self.normal_scroll, stretch=1)
-        layout.addWidget(self.grid_scroll, stretch=1)
-        self.grid_scroll.hide()
-
-        # Paginator
-        paginator = QHBoxLayout()
-        paginator.addStretch(1)
-        paginator.addWidget(QLabel("Página", self))
-
-        self.page_selector = QSpinBox(self)
-        self.page_selector.setMinimum(1)
-        self.page_selector.setMaximum(1)
-        self.page_selector.valueChanged.connect(self._jump_to_page_1based)
-        paginator.addWidget(self.page_selector)
-
-        self.page_total_label = QLabel("de 0", self)
-        paginator.addWidget(self.page_total_label)
-        paginator.addStretch(1)
-        layout.addLayout(paginator)
-
-        self.viewer_status = QLabel("", self)
-        self.viewer_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.viewer_status.setStyleSheet("color: #666;")
-        layout.addWidget(self.viewer_status)
-
-        # Throttle grid rerenders when dragging slider
-        self._grid_rerender_timer = QTimer(self)
-        self._grid_rerender_timer.setSingleShot(True)
-        self._grid_rerender_timer.timeout.connect(self._render_grid)
-
-        self._load_document()
-        self._set_mode(self._mode)
-
-    # ---------- UI / mode ----------
-    def _set_mode(self, mode: str) -> None:
-        self._mode = mode
-        if mode == "grid":
-            self.normal_scroll.hide()
-            self.grid_scroll.show()
-            self._render_grid()
-            self.viewer_status.setText(f"Vista en grid activa (zoom {self.zoom_slider.value()}%).")
+        # Carga inicial
+        if self._pdf_path and os.path.exists(self._pdf_path) and self._pdf_path.lower().endswith(".pdf"):
+            self._load_pdf(self._pdf_path)
         else:
-            self.grid_scroll.hide()
-            self.normal_scroll.show()
-            self._render_current_page()
-            self.viewer_status.setText("Vista normal activa.")
+            self.web.setHtml("<h3 style='font-family:sans-serif'>Documento no encontrado o inválido.</h3>")
+            self.btn_organize.setEnabled(False)
+            self._set_status("Sin documento")
 
-    def _open_default_app(self) -> None:
-        if not self._doc_path:
-            self.viewer_status.setText("No hay ruta disponible para abrir.")
+        # Evitar modalidad real (WebEngine + exec() suele crashear)
+        self.setModal(False)
+
+    # ---------- API compatible ----------
+    def exec(self) -> int:  # compat con tu app (no bloqueante)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        return 0
+
+    def open_url(self, url: QUrl) -> None:
+        if url.isLocalFile():
+            self._load_pdf(url.toLocalFile())
+        else:
+            self.web.setHtml("<h3 style='font-family:sans-serif'>Solo se admiten PDFs locales.</h3>")
+            self.btn_organize.setEnabled(False)
+            self._set_status("URL no local")
+
+    # ---------- Internals ----------
+    def _load_pdf(self, path: str) -> None:
+        p = str(Path(path).resolve())
+        self._pdf_path = p
+
+        if not os.path.exists(p) or not p.lower().endswith(".pdf"):
+            self.web.setHtml("<h3 style='font-family:sans-serif'>Archivo inválido o no es PDF.</h3>")
+            self.btn_organize.setEnabled(False)
+            self._set_status("Archivo inválido")
             return
-        doc_path = Path(self._doc_path)
-        url = QUrl.fromLocalFile(str(doc_path))
-        if not QDesktopServices.openUrl(url):
-            self.viewer_status.setText("No se pudo abrir la aplicación por defecto.")
 
-    # ---------- rotation ----------
-    def _rotate_pdf(self, delta: int) -> None:
-        self._rotation = (self._rotation + delta) % 360
-        # limpiar cache (la rotación cambia el render)
-        self._thumb_cache.clear()
-        if self._mode == "grid":
-            self._render_grid()
-            self.viewer_status.setText(f"Vista en grid activa (zoom {self.zoom_slider.value()}%).")
+        self.btn_organize.setEnabled(True)
+        self.web.load(QUrl.fromLocalFile(p))
+        self._set_status(os.path.basename(p))
+
+    def _open_organizer(self) -> None:
+        if not self._pdf_path or not os.path.exists(self._pdf_path):
+            QMessageBox.warning(self, "Organizar páginas", "No hay un PDF válido cargado.")
+            return
+
+        # Importante: liberar el PDF desde WebEngine antes de que el organizador escriba.
+        # Esto evita locks (Windows) y crashes raros.
+        current_pdf = self._pdf_path
+        self.web.setUrl(QUrl("about:blank"))
+
+        dlg = PageOrganizer(pdf_path=current_pdf, parent=self)
+        dlg.exec()  # este componente NO usa WebEngine, por lo que modal está OK
+
+        # Si el organizador guardó, recargar
+        if dlg.saved:
+            self._load_pdf(current_pdf)
         else:
-            self._render_current_page()
-            self.viewer_status.setText("Vista normal activa.")
+            # aunque no guardó, recargar igual para volver al doc
+            self._load_pdf(current_pdf)
 
-    # ---------- path / load ----------
-    def _resolve_doc_path(self, ruta: str | None, project_id: str | None) -> str:
+    def _set_status(self, text: str) -> None:
+        self.lbl_status.setText(text)
+
+    @staticmethod
+    def _resolve_doc_path(ruta: str | None, project_id: str | None) -> str:
         if not ruta:
             return ""
-        ruta_text = str(ruta)
+
+        ruta_text = str(ruta).replace("/", os.sep).replace("\\", os.sep)
+
         if os.path.isabs(ruta_text):
-            return ruta_text
+            return str(Path(ruta_text).resolve())
+
         if project_id:
-            base = Path(os.getcwd()) / "Ebook" / project_id
+            base = Path(os.getcwd()) / "Ebook" / str(project_id)
             return str((base / ruta_text).resolve())
-        return str(Path(ruta_text).resolve())
 
-    def _load_document(self) -> None:
-        if not self._doc_path:
-            self.viewer_status.setText("Documento sin ruta disponible.")
-            return
-        if not os.path.exists(self._doc_path):
-            self.viewer_status.setText("No se encontró el archivo del documento.")
-            return
-
-        # En PyQt6, load puede quedar en Loading y luego pasar a Ready.
-        self.viewer_status.setText("Cargando PDF...")
-        self.pdf_document.load(self._doc_path)
-
-    def _on_doc_status_changed(self, status: QPdfDocument.Status) -> None:
-        if status == QPdfDocument.Status.Ready:
-            total = max(self.pdf_document.pageCount(), 1)
-            self.page_selector.blockSignals(True)
-            self.page_selector.setMaximum(total)
-            # Mantener página actual si existe
-            self._current_page = min(self._current_page, total - 1)
-            self.page_selector.setValue(self._current_page + 1)
-            self.page_selector.blockSignals(False)
-            self.page_total_label.setText(f"de {total}")
-            self.viewer_status.setText("")
-            # Render inicial
-            if self._mode == "grid":
-                self._render_grid()
-            else:
-                self._render_current_page()
-        elif status == QPdfDocument.Status.Error:
-            self.viewer_status.setText("No se pudo cargar el PDF.")
-        else:
-            # Loading / Null
-            pass
-
-    # ---------- pagination ----------
-    def _jump_to_page_1based(self, page_1based: int) -> None:
-        # QSpinBox entrega 1..N
-        self._current_page = max(0, page_1based - 1)
-        if self._mode == "grid":
-            # En grid, saltar también al hacer click se gestiona aparte
-            self._set_mode("normal")
-        else:
-            self._render_current_page()
-
-    # ---------- rendering ----------
-    def _page_point_size(self, page_index: int) -> tuple[float, float]:
-        # QSizeF en puntos; puede variar por página.
-        try:
-            sz = self.pdf_document.pagePointSize(page_index)
-            return float(sz.width()), float(sz.height())
-        except Exception:
-            return 595.0, 842.0  # fallback A4 aprox
-
-    def _render_page_pixmap(self, page_index: int, target_width: int, rotation_deg: int) -> QPixmap | None:
-        cache_key = (page_index, target_width, rotation_deg)
-        if cache_key in self._thumb_cache:
-            return self._thumb_cache[cache_key]
-
-        w_pt, h_pt = self._page_point_size(page_index)
-        if w_pt <= 0 or h_pt <= 0:
-            return None
-
-        aspect = h_pt / w_pt
-        target_height = max(1, int(target_width * aspect))
-        target_size = QSize(max(1, int(target_width)), target_height)
-
-        try:
-            img = self.pdf_document.render(page_index, target_size)
-            if img.isNull():
-                return None
-
-            # Algunos backends dejan el fondo transparente; compón sobre blanco para evitar "negros"
-            from PyQt6.QtGui import QImage, QPainter
-
-            if img.hasAlphaChannel():
-                base = QImage(img.size(), QImage.Format.Format_RGB32)
-                base.fill(Qt.GlobalColor.white)
-                p = QPainter(base)
-                p.drawImage(0, 0, img)
-                p.end()
-                img = base
-            else:
-                # asegurar formato consistente
-                img = img.convertToFormat(QImage.Format.Format_RGB32)
-
-            if rotation_deg:
-                tr = QTransform().rotate(rotation_deg)
-                img = img.transformed(tr, Qt.TransformationMode.SmoothTransformation)
-
-            pm = QPixmap.fromImage(img)
-            self._thumb_cache[cache_key] = pm
-            return pm
-        except Exception:
-            return None
-
-    def _render_current_page(self) -> None:
-        if self.pdf_document.status() != QPdfDocument.Status.Ready:
-            return
-        total = self.pdf_document.pageCount()
-        if total <= 0:
-            return
-
-        # Render a un ancho basado en el viewport actual
-        viewport_w = max(640, self.normal_scroll.viewport().width() - 24)
-        # Un tope para no generar imágenes gigantes (mantener usabilidad)
-        viewport_w = min(viewport_w, 1600)
-
-        pm = self._render_page_pixmap(self._current_page, viewport_w, self._rotation)
-        if pm is None:
-            self.page_label.setText("No se pudo renderizar la página.")
-            return
-        self.page_label.setPixmap(pm)
-        self.page_label.adjustSize()
-
-    def resizeEvent(self, event):  # type: ignore[override]
-        super().resizeEvent(event)
-        # Re-render de página actual al redimensionar para mantener legibilidad
-        if self._mode == "normal":
-            self._thumb_cache.clear()
-            self._render_current_page()
-
-    # ---------- grid ----------
-    def _request_grid_rerender(self, _value: int) -> None:
-        if self._mode != "grid":
-            return
-        # throttle mientras se arrastra
-        self._grid_rerender_timer.start(140)
-
-    def _clear_grid(self) -> None:
-        while self.grid_layout.count():
-            item = self.grid_layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.setParent(None)
-                w.deleteLater()
-
-    def _render_grid(self) -> None:
-        if self.pdf_document.status() != QPdfDocument.Status.Ready:
-            return
-
-        total = self.pdf_document.pageCount()
-        if total <= 0:
-            return
-
-        zoom = self.zoom_slider.value()
-        target_w = int(self._thumb_target_width * (zoom / 100.0))
-        target_w = max(120, min(target_w, 600))
-
-        # número de columnas aproximado como Acrobat (depende del ancho visible)
-        available_w = max(360, self.grid_scroll.viewport().width() - 24)
-        col_w = target_w + 18  # spacing
-        cols = max(2, min(8, available_w // col_w))
-
-        self._clear_grid()
-
-        row = 0
-        col = 0
-        for i in range(total):
-            wrapper = QWidget(self.grid_container)
-            v = QVBoxLayout(wrapper)
-            v.setContentsMargins(0, 0, 0, 0)
-            v.setSpacing(6)
-
-            thumb = _ThumbLabel(i, wrapper)
-            thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            thumb.setStyleSheet("background: #fff; border: 1px solid #bbb;")
-            pm = self._render_page_pixmap(i, target_w, self._rotation)
-            if pm is not None:
-                thumb.setPixmap(pm)
-                thumb.setFixedSize(pm.size())
-            else:
-                thumb.setText("Sin preview")
-                thumb.setFixedSize(target_w, int(target_w * 1.3))
-
-            thumb.clicked.connect(self._on_thumb_clicked)
-            v.addWidget(thumb)
-
-            num = QLabel(str(i + 1), wrapper)
-            num.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            num.setStyleSheet("color: #444;")
-            v.addWidget(num)
-
-            self.grid_layout.addWidget(wrapper, row, col)
-
-            col += 1
-            if col >= cols:
-                col = 0
-                row += 1
-
-    def _on_thumb_clicked(self, page_index: int) -> None:
-        # saltar a la página desde grid
-        self._current_page = max(0, page_index)
-        self.page_selector.blockSignals(True)
-        self.page_selector.setValue(self._current_page + 1)
-        self.page_selector.blockSignals(False)
-        self._set_mode("normal")
+        return str((Path(os.getcwd()) / ruta_text).resolve())
