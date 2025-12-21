@@ -70,7 +70,7 @@ class LinksReviewDialog(QDialog):
             "Estado",
             "Ver archivo",
             "Eliminar",
-            "Excluir por siempre",
+            "Excluir siempre",
         ])
         self.table.setAlternatingRowColors(True)
         self.table.setStyleSheet("QTableWidget { background-color: #fff; }")
@@ -135,7 +135,7 @@ class LinksReviewDialog(QDialog):
             w_status = QWidget()
             l_status = QVBoxLayout(w_status)
             l_status.setContentsMargins(4, 2, 4, 2)
-            l_status.setSpacing(2)
+            l_status.setSpacing(1)
 
             status_text = "Por Descargar"
             status_color = QColor("gray")
