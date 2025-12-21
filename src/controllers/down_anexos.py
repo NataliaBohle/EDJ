@@ -14,11 +14,12 @@ from typing import Callable
 import concurrent.futures
 import json
 import os
+import shutil
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 # Importar utilidades centralizadas
-from .utils import log as _log, sanitize_filename, url_extension, download_binary
+from .utils import log as _log, sanitize_filename, url_extension, url_filename, download_binary
 
 
 def _doc_folder_name(n: str) -> str:
@@ -30,8 +31,16 @@ def _doc_folder_name(n: str) -> str:
         return (n[-2:] or "00").zfill(2)
 
 
-def _process_link_item(link_obj: dict, parent_n: str, out_base_dir: Path, detect_dir: Path, idp: str,
-                       log: Callable | None) -> bool:
+def _process_link_item(
+    link_obj: dict,
+    parent_n: str,
+    out_base_dir: Path,
+    detect_dir: Path,
+    idp: str,
+    log: Callable | None,
+    *,
+    overwrite: bool = False,
+) -> bool:
     url = link_obj.get("url")
     if not url: return False
 
@@ -47,21 +56,23 @@ def _process_link_item(link_obj: dict, parent_n: str, out_base_dir: Path, detect
             pass
 
     titulo = link_obj.get("titulo", "archivo")
+    original_name = url_filename(url)
+    original_stem = Path(original_name).stem if original_name else ""
 
     # Crear carpeta del documento madre: Archivos_{IDP}/Anexos/{0004}/
     doc_dir = out_base_dir / _doc_folder_name(parent_n)
     doc_dir.mkdir(parents=True, exist_ok=True)
 
     # Definir nombre base y extensión
-    safe_title = sanitize_filename(titulo)
-    ext = url_extension(url) or ".bin"
+    safe_title = sanitize_filename(original_stem or titulo)
+    ext = Path(original_name).suffix or url_extension(url) or ".bin"
     target_path = doc_dir / (safe_title + ext)
 
     _log(log, f"[Worker] Procesando anexo: {safe_title}")
 
     # Descarga inteligente (verifica si existe, renombra si hay colisión, etc.)
     # Timeout de 90s para archivos grandes de anexos
-    ok, final_path = download_binary(url, target_path, timeout=90)
+    ok, final_path = download_binary(url, target_path, timeout=90, overwrite=overwrite)
 
     if ok:
         try:
@@ -170,18 +181,48 @@ def download_attachments_files(idp: str, log: Callable[[str], None] | None = Non
     return exeva
 
 
-def download_single_attachment(idp: str, parent_n: str, link_obj: dict,
-                               log: Callable[[str], None] | None = None) -> bool:
+def _clear_attachment_node(link_obj: dict, detect_dir: Path, log: Callable | None) -> None:
+    ruta = link_obj.get("ruta")
+    if ruta:
+        try:
+            full_path = detect_dir / ruta
+            if full_path.exists():
+                if full_path.is_dir():
+                    shutil.rmtree(full_path)
+                else:
+                    full_path.unlink()
+            extracted_path = full_path.with_suffix("")
+            if extracted_path.exists() and extracted_path.is_dir():
+                shutil.rmtree(extracted_path)
+        except Exception as exc:
+            _log(log, f"[Worker] No se pudo limpiar archivo previo: {exc}")
+
+    for key in ("ruta", "descomprimidos", "error"):
+        link_obj.pop(key, None)
+
+
+def download_single_attachment(
+    idp: str,
+    parent_n: str,
+    link_obj: dict,
+    log: Callable[[str], None] | None = None,
+) -> bool:
     """Descarga un único anexo (para el botón Reintentar de la UI)."""
     exeva_dir = Path(os.getcwd()) / "Ebook" / idp / "EXEVA"
     detect_dir = exeva_dir
     out_base = exeva_dir / "files"
 
-    # Forzar descarga borrando ruta previa si existe
-    if "ruta" in link_obj:
-        del link_obj["ruta"]
+    _clear_attachment_node(link_obj, detect_dir, log)
 
-    return _process_link_item(link_obj, parent_n, out_base, detect_dir, idp, log)
+    return _process_link_item(
+        link_obj,
+        parent_n,
+        out_base,
+        detect_dir,
+        idp,
+        log,
+        overwrite=True,
+    )
 
 
 class AnexosDownloadWorker(QObject):

@@ -25,6 +25,11 @@ def url_extension(url: str) -> str:
     return os.path.splitext(path)[1]
 
 
+def url_filename(url: str) -> str:
+    path = urlparse(url).path
+    return Path(path).name
+
+
 def _next_available_path(base_path: Path) -> Path:
     if not base_path.exists():
         return base_path
@@ -39,9 +44,23 @@ def _next_available_path(base_path: Path) -> Path:
     return parent / f"{stem}_extra{suffix}"
 
 
-def download_binary(url: str, out_path: Path, timeout: int = 30) -> tuple[bool, Path]:
+def download_binary(
+    url: str,
+    out_path: Path,
+    timeout: int = 30,
+    *,
+    overwrite: bool = False,
+) -> tuple[bool, Path]:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    target_path = _next_available_path(out_path)
+    if overwrite:
+        if out_path.exists():
+            try:
+                out_path.unlink()
+            except Exception:
+                pass
+        target_path = out_path
+    else:
+        target_path = _next_available_path(out_path)
 
     try:
         with requests.get(url, stream=True, timeout=timeout, verify=False) as response:
