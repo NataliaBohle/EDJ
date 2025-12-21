@@ -70,10 +70,13 @@ class LinksReviewDialog(QDialog):
             "Estado",
             "Ver archivo",
             "Eliminar",
-            "Excluir siempre",
+            "Excluir por siempre",
         ])
         self.table.setAlternatingRowColors(True)
-        self.table.setStyleSheet("QTableWidget { background-color: #fff; }")
+        self.table.setStyleSheet(
+            "QTableWidget { background-color: #fff; }"
+            "QTableWidget::item { padding: 2px; }"
+        )
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -134,8 +137,8 @@ class LinksReviewDialog(QDialog):
 
             w_status = QWidget()
             l_status = QVBoxLayout(w_status)
-            l_status.setContentsMargins(4, 2, 4, 2)
-            l_status.setSpacing(1)
+            l_status.setContentsMargins(2, 2, 2, 2)
+            l_status.setSpacing(2)
 
             status_text = "Por Descargar"
             status_color = QColor("gray")
@@ -171,7 +174,7 @@ class LinksReviewDialog(QDialog):
             # 4. Acción 1 (Ver archivo)
             w_view = QWidget()
             l_view = QHBoxLayout(w_view)
-            l_view.setContentsMargins(4, 2, 4, 2)
+            l_view.setContentsMargins(2, 2, 2, 2)
 
             btn_view = QPushButton("Ver")
             btn_view.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -184,7 +187,7 @@ class LinksReviewDialog(QDialog):
             # 5. Acción 2 (Borrar)
             w_acc1 = QWidget()
             l_acc1 = QHBoxLayout(w_acc1)
-            l_acc1.setContentsMargins(4, 2, 4, 2)
+            l_acc1.setContentsMargins(2, 2, 2, 2)
 
             btn_del = QPushButton("Borrar")
             btn_del.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -203,7 +206,7 @@ class LinksReviewDialog(QDialog):
 
             w_ban = QWidget()
             l_ban = QHBoxLayout(w_ban);
-            l_ban.setContentsMargins(4, 2, 4, 2)
+            l_ban.setContentsMargins(2, 2, 2, 2)
             l_ban.addWidget(btn_ban)
             self.table.setCellWidget(i, 6, w_ban)
 
