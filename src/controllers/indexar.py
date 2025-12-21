@@ -32,27 +32,31 @@ def _save_payload(idp: str, payload: dict) -> Path:
 
 
 def _assign_n_to_tree(node: dict | list) -> None:
-    if isinstance(node, dict):
-        if "ruta" in node:
-            node.setdefault("n", "0001")
-
-        contenido = node.get("contenido")
-        if isinstance(contenido, list):
-            for idx, item in enumerate(contenido, 1):
-                if isinstance(item, dict):
-                    item["n"] = f"{idx:04d}"
-                _assign_n_to_tree(item)
-
-        for key, value in node.items():
-            if key == "contenido":
-                continue
-            if isinstance(value, (dict, list)):
-                _assign_n_to_tree(value)
+    if isinstance(node, list):
+        for idx, item in enumerate(node, 1):
+            if isinstance(item, dict):
+                item.setdefault("n", f"{idx:04d}")
+            _assign_n_to_tree(item)
         return
 
-    if isinstance(node, list):
-        for item in node:
+    if not isinstance(node, dict):
+        return
+
+    if "n" not in node and any(key in node for key in ("ruta", "nombre", "titulo", "archivo")):
+        node["n"] = "0001"
+
+    contenido = node.get("contenido")
+    if isinstance(contenido, list):
+        for idx, item in enumerate(contenido, 1):
+            if isinstance(item, dict):
+                item.setdefault("n", f"{idx:04d}")
             _assign_n_to_tree(item)
+
+    for key, value in node.items():
+        if key == "contenido":
+            continue
+        if isinstance(value, (dict, list)):
+            _assign_n_to_tree(value)
 
 
 def _indexar_item(item: dict) -> bool:
@@ -91,6 +95,7 @@ def indexar_exeva(idp: str, log: Callable[[str], None] | None = None) -> dict:
                 if _indexar_item(link):
                     indexados += 1
 
+    _assign_n_to_tree(documentos)
     _save_payload(idp, payload)
     _log(log, f"[INDEXAR] Ítems con N asignado: {indexados}.")
     return exeva
