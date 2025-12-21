@@ -552,17 +552,16 @@ class Exeva1Page(QWidget):
             return
         statuses = [self._derive_doc_status(doc) for doc in self.documentos]
         if statuses and all(status == "verificado" for status in statuses):
-            if self.status_bar.get_status() != "verificado":
-                self.status_bar.set_status("verificado")
-                idx = self.timeline.current_step
-                self.timeline.set_current_step(idx, "verificado")
-                self.data_manager.update_step_status(
-                    self.current_project_id,
-                    "EXEVA",
-                    step_index=idx,
-                    step_status="verificado",
-                    global_status="verificado",
-                )
+            self.status_bar.set_status("verificado")
+            idx = self.timeline.current_step
+            self.timeline.set_current_step(idx, "verificado")
+            self.data_manager.update_step_status(
+                self.current_project_id,
+                "EXEVA",
+                step_index=idx,
+                step_status="verificado",
+                global_status="verificado",
+            )
 
     def _set_results_table_row_count(self, doc_data: dict):
         """Helper opcional para refrescar solo los contadores en la tabla sin recargar todo."""
