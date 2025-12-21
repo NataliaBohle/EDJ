@@ -135,7 +135,7 @@ class LinksReviewDialog(QDialog):
             w_status = QWidget()
             l_status = QVBoxLayout(w_status)
             l_status.setContentsMargins(4, 2, 4, 2)
-            l_status.setSpacing(4)
+            l_status.setSpacing(2)
 
             status_text = "Por Descargar"
             status_color = QColor("gray")
@@ -155,6 +155,7 @@ class LinksReviewDialog(QDialog):
                 status_label.setStyleSheet(
                     f"color: {status_color.name()}; background-color: {status_bg.name()};"
                 )
+            status_label.setFixedHeight(16)
             l_status.addWidget(status_label)
 
             if has_ruta or has_error:
@@ -162,6 +163,7 @@ class LinksReviewDialog(QDialog):
                 btn_retry.setCursor(Qt.CursorShape.PointingHandCursor)
                 btn_retry.setStyleSheet(
                     "border: 1px solid #f59e0b; border-radius: 4px; background: #fef3c7; color: #b45309;")
+                btn_retry.setFixedHeight(20)
                 btn_retry.clicked.connect(lambda _, idx=i: self._retry_link(idx))
                 l_status.addWidget(btn_retry, alignment=Qt.AlignmentFlag.AlignCenter)
             self.table.setCellWidget(i, 3, w_status)
