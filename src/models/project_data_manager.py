@@ -47,6 +47,16 @@ class ProjectDataManager(QObject):
             self.log_requested.emit(f"❌ Error leyendo JSON de EXEVA: {e}")
             return {}
 
+    def save_exeva_data(self, project_id: str, payload: dict) -> None:
+        """Guarda el JSON específico de EXEVA."""
+        path = self._get_exeva_json_path(project_id)
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            self.log_requested.emit(f"❌ Error guardando JSON de EXEVA: {e}")
+
     def save_antgen_field_data(self, project_id: str, field_data: dict):
         """Guarda un diccionario de valores (campos) dentro de ANTGEN_DATA."""
         data = self.load_data(project_id)
