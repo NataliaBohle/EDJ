@@ -21,6 +21,15 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 from .utils import log as _log, sanitize_filename, url_extension, download_binary
 
 
+def _doc_folder_name(n: str) -> str:
+    try:
+        num = int(n)
+        return f"{num:02d}"
+    except Exception:
+        n = (n or "").strip()
+        return (n[-2:] or "00").zfill(2)
+
+
 def _process_link_item(link_obj: dict, parent_n: str, out_base_dir: Path, detect_dir: Path, idp: str,
                        log: Callable | None) -> bool:
     url = link_obj.get("url")
@@ -40,7 +49,7 @@ def _process_link_item(link_obj: dict, parent_n: str, out_base_dir: Path, detect
     titulo = link_obj.get("titulo", "archivo")
 
     # Crear carpeta del documento madre: Archivos_{IDP}/Anexos/{0004}/
-    doc_dir = out_base_dir / parent_n
+    doc_dir = out_base_dir / _doc_folder_name(parent_n)
     doc_dir.mkdir(parents=True, exist_ok=True)
 
     # Definir nombre base y extensión
