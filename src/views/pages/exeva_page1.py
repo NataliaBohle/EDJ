@@ -510,9 +510,13 @@ class Exeva1Page(QWidget):
             doc_data["estado_validacion"] = "error"
             return "error"
         if has_links:
+            if current:
+                return current
             doc_data["estado_validacion"] = "edicion"
             return "edicion"
         if formato == "doc digital":
+            if current:
+                return current
             doc_data["estado_validacion"] = "verificado"
             return "verificado"
         if current == "error":
