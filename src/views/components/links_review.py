@@ -27,10 +27,10 @@ class RetryWorker(QObject):
             project_root = Path(__file__).resolve().parents[2]
             if str(project_root) not in sys.path:
                 sys.path.insert(0, str(project_root))
-            from EDJ5_pro import b2_exeva4
+            from src.controllers.down_anexos import download_single_attachment
 
             # Ejecutar descarga
-            ok = b2_exeva4.download_single_attachment(self.idp, self.parent_n, self.link_obj)
+            ok = download_single_attachment(self.idp, self.parent_n, self.link_obj)
             self.finished.emit(ok, self.row_index)
         except Exception:
             self.finished.emit(False, self.row_index)
@@ -187,8 +187,8 @@ class LinksReviewDialog(QDialog):
                 from pathlib import Path
                 project_root = Path(__file__).resolve().parents[2]
                 if str(project_root) not in sys.path: sys.path.insert(0, str(project_root))
-                from EDJ5_pro import b2_exeva3
-                b2_exeva3.add_global_exclusion(url)
+                from src.controllers.fetch_anexos import add_global_exclusion
+                add_global_exclusion(url)
                 self._delete_link(index)
             except Exception as e:
                 QMessageBox.warning(self, "Error", str(e))

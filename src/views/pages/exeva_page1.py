@@ -18,6 +18,7 @@ from src.views.components.links_review import LinksReviewDialog
 # Controladores y Modelos de antgen
 from src.controllers.fetch_exeva import FetchExevaController
 from src.controllers.fetch_anexos import FetchAnexosController
+from src.controllers.down_anexos import DownAnexosController
 from src.models.project_data_manager import ProjectDataManager
 
 
@@ -50,7 +51,10 @@ class Exeva1Page(QWidget):
         self.fetch_anexos_controller.log_requested.connect(self.log_requested.emit)
         self.fetch_anexos_controller.detection_started.connect(self._on_anexos_detection_started)
         self.fetch_anexos_controller.detection_finished.connect(self._on_anexos_detection_finished)
-        self.down_anexos_controller = None
+        self.down_anexos_controller = DownAnexosController(self)
+        self.down_anexos_controller.log_requested.connect(self.log_requested.emit)
+        self.down_anexos_controller.download_started.connect(self._on_anexos_download_started)
+        self.down_anexos_controller.download_finished.connect(self._on_anexos_download_finished)
 
     def _setup_ui(self):
         """Construye la interfaz gráfica siguiendo el patrón de AntGen."""
@@ -226,7 +230,7 @@ class Exeva1Page(QWidget):
     def _on_downanexos_clicked(self):
         if not self.current_project_id:
             return
-        self.log_requested.emit("🚧 Descarga de anexos pendiente de implementación.")
+        self.down_anexos_controller.start_download(self.current_project_id)
 
     # --- SLOTS ASYNC ---
 
@@ -278,6 +282,24 @@ class Exeva1Page(QWidget):
             self.log_requested.emit("✅ Anexos detectados y tabla actualizada.")
         else:
             self.log_requested.emit("⚠️ No se pudieron detectar anexos.")
+
+    def _on_anexos_download_started(self):
+        self.btn_downanexos.setEnabled(False)
+        self.pbar.setVisible(True)
+        self.pbar.setRange(0, 0)
+
+    def _on_anexos_download_finished(self, success: bool, _data: dict):
+        self.pbar.setVisible(False)
+        self.btn_downanexos.setEnabled(True)
+        self.pbar.setRange(0, 100)
+
+        if success:
+            exeva_payload = self.data_manager.load_exeva_data(self.current_project_id)
+            documentos = exeva_payload.get("EXEVA", {}).get("documentos", [])
+            self._set_results_table(documentos)
+            self.log_requested.emit("✅ Descarga de anexos finalizada y tabla actualizada.")
+        else:
+            self.log_requested.emit("⚠️ No se pudieron descargar anexos.")
 
     def _set_results_table(self, documentos: list[dict]) -> None:
         rows = [
