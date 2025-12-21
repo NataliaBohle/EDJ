@@ -165,12 +165,24 @@ def _base_for_item(project_root: Path, exeva_root: Path, ruta: str | None) -> Pa
     return exeva_root
 
 
+def _mark_unpack_error(item: dict, error: str) -> None:
+    item["error_descompresion"] = True
+    item.setdefault("errores_descompresion", [])
+    item["errores_descompresion"].append(error)
+
+
+def _clear_unpack_error(item: dict) -> None:
+    item.pop("error_descompresion", None)
+    item.pop("errores_descompresion", None)
+
+
 def _process_item(item: dict, project_root: Path, exeva_root: Path,
                   log: Callable[[str], None] | None, failures: list[dict]) -> bool:
     ruta = item.get("ruta")
     archive_path = _resolve_file_path(project_root, exeva_root, ruta)
     if not archive_path:
         if ruta:
+            _mark_unpack_error(item, "Archivo no encontrado")
             failures.append({
                 "archivo": Path(str(ruta)).name,
                 "ruta": str(ruta),
@@ -181,12 +193,18 @@ def _process_item(item: dict, project_root: Path, exeva_root: Path,
     if archive_path.suffix.lower() not in EXT_COMP:
         return False
 
-    failures.extend(_extract_recursive(archive_path, log))
+    current_failures = _extract_recursive(archive_path, log)
+    failures.extend(current_failures)
 
     out_dir = archive_path.with_suffix("")
     if out_dir.exists() and out_dir.is_dir():
         base_dir = _base_for_item(project_root, exeva_root, ruta)
         item["descomprimidos"] = _index_tree(out_dir, base_dir)
+        if current_failures:
+            for failure in current_failures:
+                _mark_unpack_error(item, failure.get("error", "Error de descompresión"))
+        else:
+            _clear_unpack_error(item)
         return True
 
     return False

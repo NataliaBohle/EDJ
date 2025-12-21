@@ -17,6 +17,7 @@ from src.views.components.status_bar import StatusBar
 from src.views.components.command_bar import CommandBar
 from src.views.components.timeline import Timeline
 from src.views.components.results_table import EditableTableCard
+from src.views.components.mini_status import MiniStatusBar
 from src.models.project_data_manager import ProjectDataManager
 from src.controllers.unpack import UnpackController
 
@@ -214,6 +215,7 @@ class Exeva2Page(QWidget):
                     ("archivo", "Archivo"),
                     ("ruta", "URL / Ruta"),
                     ("formato", "Formato comprimido"),
+                    ("estado", "Estado"),
                 ],
                 parent=self.content_widget,
             )
@@ -223,6 +225,7 @@ class Exeva2Page(QWidget):
             header = card.table.horizontalHeader()
             header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
             card.set_data(compressed_rows)
+            self._attach_row_status_bars(card, compressed_rows)
             card.table.resizeColumnsToContents()
 
             self.content_layout.addWidget(card)
@@ -260,6 +263,7 @@ class Exeva2Page(QWidget):
                 "archivo": self._format_link_name(link),
                 "ruta": self._format_link_source(link),
                 "formato": formato,
+                "estado": self._derive_link_status(link),
             })
         return rows
 
@@ -291,6 +295,28 @@ class Exeva2Page(QWidget):
             if format_label:
                 return format_label
         return None
+
+    def _derive_link_status(self, link: dict) -> str:
+        if link.get("error_descompresion") or link.get("error"):
+            return "error"
+        if link.get("descomprimidos"):
+            return "verificado"
+        return "detectado"
+
+    def _attach_row_status_bars(self, card: EditableTableCard, rows: list[dict]) -> None:
+        status_column = None
+        for idx, (key, _label) in enumerate(card.columns):
+            if key == "estado":
+                status_column = idx
+                break
+        if status_column is None:
+            return
+
+        for row_idx, row_data in enumerate(rows):
+            widget = MiniStatusBar(card.table)
+            widget.setEnabled(False)
+            widget.set_status(row_data.get("estado"))
+            card.table.setCellWidget(row_idx, status_column, widget)
 
     def _format_from_value(self, value: str | None) -> str | None:
         if not value:
