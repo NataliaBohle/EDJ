@@ -123,12 +123,12 @@ class PageOrganizer(QDialog):
         self.btn_save.clicked.connect(self._save)
         self.btn_close.clicked.connect(self.close)
 
-        self._thumb_w = 360  # miniaturas iniciales más legibles
-        self._thumb_w_min = 260
+        self._thumb_w = 100
+        self._thumb_w_min = 100
         self._thumb_w_max = 600
         self._thumb_pad = 12
         self._page_ratio = 1.35
-        self._thumb_step = 60
+        self._thumb_step = 40
 
         self.btn_zoom_out = QPushButton("−")
         self.btn_zoom_in = QPushButton("+")
@@ -257,10 +257,21 @@ class PageOrganizer(QDialog):
 
     def _build_items(self) -> None:
         self.list.clear()
+
+        # 1. Crear un placeholder del tamaño exacto que esperamos
+        icon_size = self.list.iconSize()
+        placeholder = QPixmap(icon_size)
+        placeholder.fill(Qt.GlobalColor.transparent)  # O Qt.GlobalColor.white si prefieres
+        dummy_icon = QIcon(placeholder)
+
         for i in range(self._page_count):
-            it = QListWidgetItem(f"{i+1}")
+            it = QListWidgetItem(f"{i + 1}")
             it.setData(Qt.ItemDataRole.UserRole, i)
             it.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
+
+            # 2. Asignar el placeholder INMEDIATAMENTE para reservar espacio
+            it.setIcon(dummy_icon)
+
             self.list.addItem(it)
 
         self._render_i = 0
