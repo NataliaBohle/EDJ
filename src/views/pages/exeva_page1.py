@@ -152,11 +152,12 @@ class Exeva1Page(QWidget):
                 ("titulo", "Nombre"),
                 ("remitido_por", "Remitido por"),
                 ("fecha", "Fecha"),
-                ("estado_doc", "Estado"),
+                ("formato", "Formato"),
                 ("anexos_detectados", "Anexos"),
                 ("vinculados_detectados", "Vinculados"),
                 ("ver_anexos", "Ver anexos"),
                 ("ver_doc", "Ver doc"),
+                ("estado_doc", "Estado"),
             ],
             parent=self.content_widget,
         )
@@ -165,7 +166,17 @@ class Exeva1Page(QWidget):
         self.results_table.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         header = self.results_table.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        fixed_cols = {"n", "folio", "fecha", "estado_doc", "anexos_detectados", "vinculados_detectados", "ver_anexos", "ver_doc"}
+        fixed_cols = {
+            "n",
+            "folio",
+            "fecha",
+            "formato",
+            "anexos_detectados",
+            "vinculados_detectados",
+            "ver_anexos",
+            "ver_doc",
+            "estado_doc",
+        }
         for idx, (key, _label) in enumerate(self.results_table.columns):
             if key in fixed_cols:
                 header.setSectionResizeMode(idx, QHeaderView.ResizeMode.ResizeToContents)
@@ -327,11 +338,12 @@ class Exeva1Page(QWidget):
                 "titulo": doc.get("titulo", ""),
                 "remitido_por": doc.get("remitido_por", ""),
                 "fecha": doc.get("fecha", ""),
-                "estado_doc": "",
+                "formato": doc.get("formato", ""),
                 "anexos_detectados": str(len(doc.get("anexos_detectados") or [])),
                 "vinculados_detectados": str(len(doc.get("vinculados_detectados") or [])),
                 "ver_anexos": "",
                 "ver_doc": "",
+                "estado_doc": "",
             }
             for doc in documentos
         ]
@@ -490,14 +502,26 @@ class Exeva1Page(QWidget):
 
     def _derive_doc_status(self, doc_data: dict) -> str:
         has_error = self._doc_has_error_links(doc_data)
+        has_links = self._doc_has_links(doc_data)
+        formato = (doc_data.get("formato") or "").strip().lower()
         current = (doc_data.get("estado_validacion") or "").strip().lower()
+
         if has_error:
             doc_data["estado_validacion"] = "error"
             return "error"
+        if has_links:
+            doc_data["estado_validacion"] = "edicion"
+            return "edicion"
+        if formato == "doc digital":
+            doc_data["estado_validacion"] = "verificado"
+            return "verificado"
         if current == "error":
             doc_data["estado_validacion"] = "detectado"
             return "detectado"
         return current or "detectado"
+
+    def _doc_has_links(self, doc_data: dict) -> bool:
+        return bool((doc_data.get("anexos_detectados") or []) + (doc_data.get("vinculados_detectados") or []))
 
     def _doc_has_error_links(self, doc_data: dict) -> bool:
         for item in (doc_data.get("anexos_detectados") or []) + (doc_data.get("vinculados_detectados") or []):
