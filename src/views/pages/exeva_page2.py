@@ -18,6 +18,7 @@ from src.views.components.command_bar import CommandBar
 from src.views.components.timeline import Timeline
 from src.views.components.results_table import EditableTableCard
 from src.models.project_data_manager import ProjectDataManager
+from src.controllers.unpack import UnpackController
 
 
 class Exeva2Page(QWidget):
@@ -38,6 +39,10 @@ class Exeva2Page(QWidget):
     def _init_controllers(self):
         self.data_manager = ProjectDataManager(self)
         self.data_manager.log_requested.connect(self.log_requested.emit)
+        self.unpack_controller = UnpackController(self)
+        self.unpack_controller.log_requested.connect(self.log_requested.emit)
+        self.unpack_controller.unpack_started.connect(self._on_unpack_started)
+        self.unpack_controller.unpack_finished.connect(self._on_unpack_finished)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -168,7 +173,19 @@ class Exeva2Page(QWidget):
     def _on_unzip_index_clicked(self):
         if not self.current_project_id:
             return
-        self.log_requested.emit("⏳ Descompresión e indexación pendiente de implementación.")
+        self.unpack_controller.start_unpack(self.current_project_id)
+
+    def _on_unpack_started(self) -> None:
+        self.btn_unzip_index.setEnabled(False)
+        self.log_requested.emit("⏳ Descomprimiendo archivos comprimidos...")
+
+    def _on_unpack_finished(self, success: bool, _data: dict) -> None:
+        self.btn_unzip_index.setEnabled(True)
+        if success:
+            self._load_results_tables()
+            self.log_requested.emit("✅ Descompresión e indexación finalizadas.")
+        else:
+            self.log_requested.emit("⚠️ No se pudieron descomprimir archivos.")
 
     def _load_results_tables(self) -> None:
         exeva_payload = self.data_manager.load_exeva_data(self.current_project_id)

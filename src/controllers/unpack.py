@@ -1,212 +1,301 @@
-import os
+from __future__ import annotations
+
 import json
-import shutil
-import zipfile
-import rarfile
-import py7zr
+import os
 import subprocess
+import zipfile
 from pathlib import Path
+from typing import Callable
+
+import py7zr
+import rarfile
+from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
+
+from .utils import log as _log
 
 EXT_COMP = {".zip", ".rar", ".7z"}
-fallidos = []
+MAX_RECURSION = 8
 
-def extrae(clave, ID):
-    # Ajusta la ruta del UNRAR si usas binario local
-    rarfile.UNRAR_TOOL = r"src/controllers/UnRAR.exe"
 
-    carpeta = f"{clave}_{ID}"
-    ruta_base = Path(carpeta) / "Archivos"
-    json_original = Path(carpeta) / f"02{clave}_{ID}.json"
-    json_nuevo = Path(carpeta) / f"03{clave}_{ID}.json"
-    ruta_base.mkdir(parents=True, exist_ok=True)
-    shutil.copy(json_original, json_nuevo)
+def _get_exeva_json_path(idp: str) -> Path:
+    return Path(os.getcwd()) / "Ebook" / idp / "EXEVA" / f"{idp}_EXEVA.json"
 
-    with open(json_nuevo, "r", encoding="utf-8") as f:
-        documentos = json.load(f)
 
-    def ex_unrar(archivo_rar, carpeta_destino):
-        print(f"[PASA A SUBPROCESO] {archivo_rar.name}")
-        comando = [
-            str(rarfile.UNRAR_TOOL), "x", "-y",
-            str(archivo_rar),
-            str(carpeta_destino)
-        ]
-        resultado = subprocess.run(comando, capture_output=True, text=True)
-        if resultado.returncode != 0:
-            raise RuntimeError(f"UNRAR falló:\n{resultado.stderr.strip()}")
+def _load_payload(idp: str) -> dict:
+    path = _get_exeva_json_path(idp)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
 
-    def ex_recursivo(archivo, folder_out, nivel=0, max_nivel=20):
-        ext = archivo.suffix.lower()
+
+def _save_payload(idp: str, payload: dict) -> Path:
+    path = _get_exeva_json_path(idp)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=4, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def _set_unrar_tool(log: Callable[[str], None] | None) -> None:
+    unrar_path = Path(__file__).resolve().parent / "UnRAR.exe"
+    if unrar_path.exists():
+        rarfile.UNRAR_TOOL = str(unrar_path)
+        _log(log, f"[UNPACK] Usando UNRAR local: {unrar_path}")
+
+
+def _extract_with_unrar(archive_path: Path, out_dir: Path) -> None:
+    command = [
+        str(rarfile.UNRAR_TOOL),
+        "x",
+        "-y",
+        str(archive_path),
+        str(out_dir),
+    ]
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "UNRAR falló")
+
+
+def _extract_archive(archive_path: Path, out_dir: Path, log: Callable[[str], None] | None) -> None:
+    ext = archive_path.suffix.lower()
+    if ext == ".zip":
+        with zipfile.ZipFile(archive_path, "r") as zip_ref:
+            zip_ref.extractall(out_dir)
+    elif ext == ".rar":
         try:
-            if nivel > max_nivel:
-                raise RecursionError(f"Límite de niveles alcanzado ({max_nivel})")
-            print(f"Descomprimiendo: {archivo.name} → {folder_out}")
-            if ext == ".zip":
-                with zipfile.ZipFile(archivo, 'r') as zip_ref:
-                    zip_ref.extractall(folder_out)
-            elif ext == ".rar":
-                try:
-                    with rarfile.RarFile(str(archivo), 'r') as rar_ref:
-                        rar_ref.extractall(folder_out)
-                except Exception:
-                    print(f"rarfile falló con {archivo.name}, usando subproceso...")
-                    ex_unrar(archivo, folder_out)
-            elif ext == ".7z":
-                with py7zr.SevenZipFile(archivo, mode="r") as z:
-                    z.extractall(path=folder_out)
-            else:
-                raise ValueError(f"Error en extensión: {ext}")
+            with rarfile.RarFile(str(archive_path), "r") as rar_ref:
+                rar_ref.extractall(out_dir)
+        except Exception:
+            _log(log, f"[UNPACK] rarfile falló con {archive_path.name}. Probando UNRAR...")
+            _extract_with_unrar(archive_path, out_dir)
+    elif ext == ".7z":
+        with py7zr.SevenZipFile(archive_path, mode="r") as seven_zip:
+            seven_zip.extractall(path=out_dir)
+    else:
+        raise ValueError(f"Formato no soportado: {ext}")
 
-            # Descomprime también los anidados
-            for root, _, files in os.walk(folder_out):
-                for fname in files:
-                    fpath = Path(root) / fname
-                    if fpath.suffix.lower() in EXT_COMP:
-                        nueva_carpeta = fpath.with_suffix("")
-                        if not nueva_carpeta.exists() or not any(nueva_carpeta.iterdir()):
-                            nueva_carpeta.mkdir(parents=True, exist_ok=True)
-                            ex_recursivo(fpath, nueva_carpeta, nivel + 1)
-        except Exception as e:
-            fallidos.append({
-                "archivo": archivo.name,
-                "ruta": str(archivo),
-                "error": str(e)
-            })
 
-    print("🔍 Buscando y descomprimiendo archivos...")
-    for root, _, files in os.walk(ruta_base):
+def _walk_compressed_files(folder: Path):
+    for root, _, files in os.walk(folder):
         for file in files:
-            archivo = Path(root) / file
-            if not archivo.exists():
-                encontrados = list(ruta_base.rglob(archivo.name))
-                if encontrados:
-                    archivo = encontrados[0]
-                    print(f"🛠️ Redirigido a ruta encontrada: {archivo}")
-                else:
-                    print(f"❌ Archivo no encontrado: {archivo}")
-                    fallidos.append({
-                        "archivo": archivo.name,
-                        "ruta": str(archivo),
-                        "error": "Archivo no encontrado"
-                    })
-                    continue
-            if archivo.suffix.lower() in EXT_COMP:
-                carpeta_out = archivo.with_suffix("")
-                if not carpeta_out.exists() or not any(carpeta_out.iterdir()):
-                    carpeta_out.mkdir(parents=True, exist_ok=True)
-                    ex_recursivo(archivo, carpeta_out)
+            path = Path(root) / file
+            if path.suffix.lower() in EXT_COMP:
+                yield path
 
-    def normalizar_ruta(ruta):
-        return str(Path(ruta).as_posix())
 
-    def ruta_sin_repeticiones(carpeta, archivo_rel):
-        partes = Path(archivo_rel).parts
-        if partes and partes[0] == "Archivos":
-            partes = partes[1:]  # elimina 'Archivos' si ya viene en la ruta
-        return normalizar_ruta(Path(carpeta) / "Archivos" / Path(*partes))
+def _extract_recursive(archive_path: Path, log: Callable[[str], None] | None) -> list[dict]:
+    failures: list[dict] = []
+    queue = [(archive_path, 0)]
 
-    def ajson(path: Path):
-        def indexar(path: Path):
-            carpeta_top = f"{clave}_{ID}"
-            estructura = {
-                "nombre": path.name,
-                "formato": "carpeta" if path.is_dir() else (path.suffix.lower().lstrip(".") or "desconocido"),
-                "ruta": ruta_sin_repeticiones(carpeta_top, path.relative_to(ruta_base)),
-            }
-            if path.is_dir():
-                estructura["contenido"] = []
-                carpetas = sorted([p for p in path.iterdir() if p.is_dir()])
-                archivos = sorted([p for p in path.iterdir() if p.is_file()])
-                for carpeta_ in carpetas:
-                    estructura["contenido"].append(indexar(carpeta_))
-                for archivo_ in archivos:
-                    estructura["contenido"].append({
-                        "nombre": archivo_.name,
-                        "formato": archivo_.suffix.lower().lstrip(".") or "desconocido",
-                        "ruta": ruta_sin_repeticiones(carpeta_top, archivo_.relative_to(ruta_base))
-                    })
-            return estructura
-        return indexar(path)
+    while queue:
+        current, depth = queue.pop(0)
+        if depth > MAX_RECURSION:
+            failures.append({
+                "archivo": current.name,
+                "ruta": str(current),
+                "error": f"Límite de niveles alcanzado ({MAX_RECURSION})",
+            })
+            continue
 
-    # Asignar N recursivamente
-    def asignarN(nodo):
-        if isinstance(nodo, dict):
-            if "contenido" in nodo and isinstance(nodo["contenido"], list):
-                for idx, item in enumerate(nodo["contenido"], 1):
-                    item["n"] = f"{idx:04d}"
-                    asignarN(item)
-            if "ruta" in nodo and "n" not in nodo:
-                nodo["n"] = "0001"
-            for v in nodo.values():
-                asignarN(v)
-        elif isinstance(nodo, list):
-            for item in nodo:
-                asignarN(item)
-
-    # NUEVO: indexar descomprimidos para doc principal y para url_a_exp/url_a_docdig/url_a_pdf
-    def indexar_descomprimidos_para_item(item) -> bool:
-        """
-        Si item contiene 'ruta' a un comprimido, busca la carpeta con el mismo nombre sin extensión
-        y, si existe, inserta item['descomprimidos'] = ajson(carpeta).
-        Devuelve True si indexó, False si no.
-        """
-        ruta_item = item.get("ruta")
-        if not ruta_item:
-            return False
-        p = Path(ruta_item)
-        # Asegurar que sea relativo desde la raíz del proyecto
-        if not p.is_absolute():
-            p = Path(".") / p
-        if not p.exists():
-            return False
-        if p.suffix.lower() not in EXT_COMP:
-            return False
-        carpeta_ext = p.with_suffix("")
-        if carpeta_ext.exists() and carpeta_ext.is_dir():
+        out_dir = current.with_suffix("")
+        if not out_dir.exists() or not any(out_dir.iterdir()):
+            out_dir.mkdir(parents=True, exist_ok=True)
             try:
-                item["descomprimidos"] = ajson(carpeta_ext)
-                return True
-            except Exception as e:
-                print(f"⚠️ No se pudo indexar carpeta {carpeta_ext}: {e}")
+                _log(log, f"[UNPACK] Descomprimiendo: {current.name} → {out_dir}")
+                _extract_archive(current, out_dir, log)
+            except Exception as exc:
+                failures.append({
+                    "archivo": current.name,
+                    "ruta": str(current),
+                    "error": str(exc),
+                })
+                continue
+
+        for nested in _walk_compressed_files(out_dir):
+            nested_out = nested.with_suffix("")
+            if not nested_out.exists() or not any(nested_out.iterdir()):
+                queue.append((nested, depth + 1))
+
+    return failures
+
+
+def _resolve_file_path(project_root: Path, exeva_root: Path, ruta: str | None) -> Path | None:
+    if not ruta:
+        return None
+    path = Path(str(ruta))
+    if path.is_absolute() and path.exists():
+        return path
+
+    candidate = project_root / path
+    if candidate.exists():
+        return candidate
+
+    candidate = exeva_root / path
+    if candidate.exists():
+        return candidate
+
+    return None
+
+
+def _normalize_route(path: Path, base_dir: Path) -> str:
+    try:
+        rel = path.resolve().relative_to(base_dir.resolve())
+        return rel.as_posix()
+    except Exception:
+        return path.as_posix()
+
+
+def _index_tree(path: Path, base_dir: Path) -> dict:
+    info = {
+        "nombre": path.name,
+        "formato": "carpeta" if path.is_dir() else (path.suffix.lower().lstrip(".") or "desconocido"),
+        "ruta": _normalize_route(path, base_dir),
+    }
+    if path.is_dir():
+        children = sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+        info["contenido"] = [_index_tree(child, base_dir) for child in children]
+    return info
+
+
+def _base_for_item(project_root: Path, exeva_root: Path, ruta: str | None) -> Path:
+    if ruta and str(ruta).replace("\\", "/").startswith("EXEVA/"):
+        return project_root
+    return exeva_root
+
+
+def _process_item(item: dict, project_root: Path, exeva_root: Path,
+                  log: Callable[[str], None] | None, failures: list[dict]) -> bool:
+    ruta = item.get("ruta")
+    archive_path = _resolve_file_path(project_root, exeva_root, ruta)
+    if not archive_path:
+        if ruta:
+            failures.append({
+                "archivo": Path(str(ruta)).name,
+                "ruta": str(ruta),
+                "error": "Archivo no encontrado",
+            })
         return False
 
-    indexados_docs = 0
-    indexados_anexos = 0
+    if archive_path.suffix.lower() not in EXT_COMP:
+        return False
 
-    print("🗂️ Indexando archivos descomprimidos en JSON...")
-    for idx, doc in enumerate(documentos, 1):
-        print(f"   → Documento {idx}/{len(documentos)}: {doc.get('titulo', '')[:60]}...")
+    failures.extend(_extract_recursive(archive_path, log))
 
-        # 1) Doc principal si fuera comprimido
-        if "ruta" in doc:
-            if indexar_descomprimidos_para_item(doc):
-                indexados_docs += 1
+    out_dir = archive_path.with_suffix("")
+    if out_dir.exists() and out_dir.is_dir():
+        base_dir = _base_for_item(project_root, exeva_root, ruta)
+        item["descomprimidos"] = _index_tree(out_dir, base_dir)
+        return True
 
-        # 2) Listas de anexos conocidas
-        for lista_nombre in ("url_a_exp", "url_a_docdig", "url_a_pdf", "vinculos"):
-            lista = doc.get(lista_nombre, [])
-            if not isinstance(lista, list):
+    return False
+
+
+def unpack_exeva_archives(idp: str, log: Callable[[str], None] | None = None) -> dict:
+    _set_unrar_tool(log)
+    payload = _load_payload(idp) or {}
+    exeva = payload.get("EXEVA")
+    if not isinstance(exeva, dict):
+        _log(log, "[UNPACK] No hay datos EXEVA para descomprimir.")
+        return {}
+
+    documentos = exeva.get("documentos") or []
+    if not isinstance(documentos, list):
+        _log(log, "[UNPACK] Formato inesperado de documentos.")
+        return {}
+
+    project_root = Path(os.getcwd()) / "Ebook" / idp
+    exeva_root = project_root / "EXEVA"
+
+    total_items = 0
+    indexed_items = 0
+    failures: list[dict] = []
+
+    for doc in documentos:
+        if not isinstance(doc, dict):
+            continue
+
+        if "descomprimidos" in doc:
+            doc.pop("descomprimidos", None)
+
+        if _process_item(doc, project_root, exeva_root, log, failures):
+            indexed_items += 1
+        total_items += 1
+
+        for key in ("anexos_detectados", "vinculados_detectados"):
+            links = doc.get(key) or []
+            if not isinstance(links, list):
                 continue
-            for item in lista:
-                # Si ya tenía una indexación previa, limpiarla para regenerar
-                if "descomprimidos" in item:
-                    del item["descomprimidos"]
-                if indexar_descomprimidos_para_item(item):
-                    indexados_anexos += 1
+            for link in links:
+                if not isinstance(link, dict):
+                    continue
+                total_items += 1
+                link.pop("descomprimidos", None)
+                if _process_item(link, project_root, exeva_root, log, failures):
+                    indexed_items += 1
 
-    print(f"🔢 Asignando N...")
-    asignarN(documentos)
+    _save_payload(idp, payload)
+    _log(log, f"[UNPACK] Ítems indexados: {indexed_items}/{total_items}.")
 
-    with open(json_nuevo, "w", encoding="utf-8") as f:
-        json.dump(documentos, f, indent=2, ensure_ascii=False)
+    if failures:
+        _log(log, "[UNPACK] Archivos con error en descompresión:")
+        for failure in failures:
+            _log(log, f" - {failure['archivo']}: {failure['error']}")
 
-    print(f"\n✅ JSON nuevo guardado en: {json_nuevo}")
-    print(f"📦 Descomprimidos indexados: doc={indexados_docs}, anexos={indexados_anexos}")
+    return exeva
 
-    if fallidos:
-        print("\n⚠️ Archivos que NO pudieron ser descomprimidos:")
-        for f in fallidos:
-            print(f"- {f['archivo']} ({f['ruta']})")
-            print(f"  Motivo: {f['error']}")
-    else:
-        print("\n🟢 Todos los archivos descomprimidos correctamente.")
+
+class UnpackWorker(QObject):
+    finished_signal = pyqtSignal(bool, dict)
+    log_signal = pyqtSignal(str)
+
+    def __init__(self, project_id: str):
+        super().__init__()
+        self.project_id = project_id
+
+    @pyqtSlot()
+    def run(self) -> None:
+        success = False
+        result_data: dict = {}
+        try:
+            result_data = unpack_exeva_archives(self.project_id, log=self.log_signal.emit)
+            if result_data:
+                success = True
+                self.log_signal.emit("✅ Descompresión e indexación completadas.")
+            else:
+                self.log_signal.emit("⚠️ No hay datos para descomprimir.")
+        except Exception as exc:
+            self.log_signal.emit(f"❌ Error inesperado durante la descompresión: {exc}")
+        self.finished_signal.emit(success, result_data)
+
+
+class UnpackController(QObject):
+    unpack_started = pyqtSignal()
+    unpack_finished = pyqtSignal(bool, dict)
+    log_requested = pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.worker: UnpackWorker | None = None
+        self.thread: QThread | None = None
+
+    def start_unpack(self, project_id: str) -> None:
+        if self.thread and self.thread.isRunning():
+            self.log_requested.emit("⚠️ La descompresión ya está en curso.")
+            return
+
+        self.unpack_started.emit()
+        self.thread = QThread()
+        self.worker = UnpackWorker(project_id)
+
+        self.worker.moveToThread(self.thread)
+        self.thread.started.connect(self.worker.run)
+
+        self.worker.log_signal.connect(self.log_requested.emit)
+        self.worker.finished_signal.connect(self.unpack_finished.emit)
+        self.worker.finished_signal.connect(self.thread.quit)
+        self.worker.finished_signal.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+
+        self.thread.start()
