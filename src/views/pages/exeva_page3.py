@@ -192,6 +192,7 @@ class Exeva3Page(QWidget):
         self.exeva_payload = exeva_payload or {}
         documentos = exeva_payload.get("EXEVA", {}).get("documentos", [])
         self.documentos = documentos
+        self._ensure_document_counts(self.documentos)
 
         self.timeline.set_current_step(step_idx, step_status)
         self.status_bar.set_status(global_status)
@@ -253,6 +254,7 @@ class Exeva3Page(QWidget):
         self.exeva_payload = exeva_payload or {}
         documentos = exeva_payload.get("EXEVA", {}).get("documentos", [])
         self.documentos = documentos
+        self._ensure_document_counts(self.documentos)
         self._set_results_table(documentos)
 
     def _set_results_table(self, documentos: list[dict]) -> None:
@@ -314,6 +316,107 @@ class Exeva3Page(QWidget):
                         self.results_table.table.setCellWidget(row_idx, anexos_col, button)
             self.results_table.table.resizeColumnsToContents()
             self._update_global_status_from_rows()
+
+    def _ensure_document_counts(self, documentos: list[dict]) -> None:
+        for doc in documentos:
+            if not isinstance(doc, dict):
+                continue
+            counts = self._count_doc_files(doc)
+            doc["archivos_totales"] = counts["archivos_totales"]
+            doc["archivos_pdf"] = counts["archivos_pdf"]
+
+    def _count_doc_files(self, doc: dict) -> dict:
+        total = {"archivos_totales": 0, "archivos_pdf": 0}
+        self._record_format(doc.get("formato"), total)
+        self._count_tree_formats(doc.get("descomprimidos"), total)
+        for key in ("anexos_detectados", "vinculados_detectados"):
+            links = doc.get(key) or []
+            if not isinstance(links, list):
+                continue
+            for link in links:
+                if not isinstance(link, dict):
+                    continue
+                self._record_format(self._infer_link_format(link), total)
+                self._count_tree_formats(link.get("descomprimidos"), total)
+        return total
+
+    def _record_format(self, format_value: str | None, total: dict) -> None:
+        label = (format_value or "sin formato").strip() or "sin formato"
+        total["archivos_totales"] += 1
+        if "pdf" in label.lower():
+            total["archivos_pdf"] += 1
+
+    def _count_tree_formats(self, node: dict | list | None, total: dict) -> None:
+        if isinstance(node, list):
+            for item in node:
+                self._count_tree_formats(item, total)
+            return
+        if not isinstance(node, dict):
+            return
+        formato = node.get("formato")
+        if formato and str(formato).lower() != "carpeta":
+            self._record_format(str(formato), total)
+        contenido = node.get("contenido")
+        if isinstance(contenido, list):
+            for child in contenido:
+                self._count_tree_formats(child, total)
+
+    def _infer_link_format(self, link: dict) -> str | None:
+        if link.get("formato"):
+            return str(link.get("formato"))
+        candidates = [
+            link.get("ruta"),
+            link.get("url"),
+            link.get("titulo"),
+            link.get("info_extra"),
+            link.get("archivo"),
+        ]
+        for value in candidates:
+            fmt = self._format_from_value(str(value)) if value else None
+            if fmt:
+                return fmt
+        return None
+
+    def _format_from_value(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        value_lower = value.lower().strip()
+        if value_lower.startswith("http"):
+            value_lower = value_lower.split("?", 1)[0]
+        multi_map = {
+            ".tar.gz": "TAR.GZ",
+            ".tar.bz2": "TAR.BZ2",
+            ".tar.xz": "TAR.XZ",
+        }
+        for ext, label in multi_map.items():
+            if value_lower.endswith(ext):
+                return label
+
+        ext = value_lower.rsplit(".", 1)[-1] if "." in value_lower else ""
+        ext = f".{ext}" if ext else ""
+        simple_map = {
+            ".zip": "ZIP",
+            ".rar": "RAR",
+            ".7z": "7ZIP",
+            ".tar": "TAR",
+            ".gz": "GZ",
+            ".bz2": "BZ2",
+            ".xz": "XZ",
+            ".tgz": "TAR.GZ",
+            ".pdf": "PDF",
+            ".doc": "DOC",
+            ".docx": "DOCX",
+            ".xls": "XLS",
+            ".xlsx": "XLSX",
+            ".ppt": "PPT",
+            ".pptx": "PPTX",
+        }
+        if ext in simple_map:
+            return simple_map[ext]
+        for ext_key, label in simple_map.items():
+            if ext_key in value_lower:
+                return label
+        return None
 
     def _open_pdf_viewer(self, doc_data: dict) -> None:
         viewer = PdfViewer(doc_data, self, self.current_project_id)
