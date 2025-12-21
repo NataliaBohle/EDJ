@@ -286,84 +286,74 @@ class PageOrganizer(QDialog):
         QTimer.singleShot(0, self._render_step)
 
     def _render_thumb(self, page_idx: int, rot: int, target_w: int) -> QPixmap:
-        # Caja final (lo que realmente se verá en el grid)
+        # 1. Configurar caja final y área de contenido
         icon_size = self.list.iconSize()
         out_w = max(80, int(icon_size.width()))
         out_h = max(80, int(icon_size.height()))
 
-        ps = self.doc.pagePointSize(page_idx)
+        content_w = max(40, out_w - (self._thumb_pad * 2))
+        content_h = max(40, out_h - (self._thumb_pad * 2))
 
-        # Proporción base de página (sin rotación)
+        # 2. Obtener dimensiones originales para mantener el ratio al renderizar
+        ps = self.doc.pagePointSize(page_idx)
         if ps.isEmpty() or ps.width() <= 0 or ps.height() <= 0:
             page_ratio = 1.35
         else:
             page_ratio = float(ps.height()) / float(ps.width())
 
-        # Render en una resolución moderada conservando proporción
-        content_w = max(40, out_w - (self._thumb_pad * 2))
-        content_h = max(40, out_h - (self._thumb_pad * 2))
-        render_ratio = page_ratio
-        rot_n = _norm_rot(rot)
-        if rot_n in (90, 270) and render_ratio > 0:
-            render_ratio = 1 / render_ratio
+        # 3. Calcular tamaño de renderizado CORRECTO (sin deformar)
+        #    Usamos una resolución alta para calidad, pero respetando 'page_ratio'
+        max_side = max(1000, max(content_w, content_h) * 3)
 
-        max_side = max(800, max(content_w, content_h) * 4)
-        if render_ratio >= 1:
-            render_w = max_side
-            render_h = int(max_side * render_ratio)
-        else:
+        if page_ratio > 1:  # Es vertical
+            render_w = int(max_side / page_ratio)
             render_h = max_side
-            render_w = int(max_side / render_ratio)
+        else:  # Es horizontal o cuadrado
+            render_w = max_side
+            render_h = int(max_side * page_ratio)
 
+        # Renderizar: Ahora sí pedimos el tamaño proporcional, no un cuadrado forzado
         img = self.doc.render(page_idx, QSize(render_w, render_h))
 
         if img.isNull():
             pm = QPixmap(QSize(out_w, out_h))
             pm.fill(Qt.GlobalColor.white)
-            painter = QPainter(pm)
-            painter.setPen(Qt.GlobalColor.lightGray)
-            painter.drawRect(0, 0, pm.width() - 1, pm.height() - 1)
-            painter.setPen(Qt.GlobalColor.gray)
-            painter.drawText(10, 20, f"Página {page_idx + 1}")
-            painter.end()
             return pm
 
-        # Normaliza formato
         img = img.convertToFormat(QImage.Format.Format_ARGB32)
 
-        # 1) Rotar la imagen ANTES de escalar (así no se deforma)
+        # 4. Rotar la imagen limpia
+        rot_n = _norm_rot(rot)
         if rot_n:
             t = QTransform()
             t.rotate(rot_n)
             img = img.transformed(t, Qt.TransformationMode.SmoothTransformation)
 
-        # 2) Escalar para llenar el área de contenido (manteniendo aspecto)
+        # 5. Escalar para que QUEPA en la celda (KeepAspectRatio)
+        #    Esto asegura que se vea toda la hoja sin cortes ni estiramientos
         scaled = img.scaled(
             QSize(content_w, content_h),
-            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
 
-        # 3) Componer sobre fondo blanco (evita transparencias/negros)
+        # 6. Componer en el centro del fondo blanco
         out = QImage(QSize(out_w, out_h), QImage.Format.Format_ARGB32)
         out.fill(0xFFFFFFFF)
 
         p = QPainter(out)
-        src_x = max(0, (scaled.width() - content_w) // 2)
-        src_y = max(0, (scaled.height() - content_h) // 2)
-        target = QRect(self._thumb_pad, self._thumb_pad, content_w, content_h)
-        source = QRect(src_x, src_y, content_w, content_h)
-        p.drawImage(target, scaled, source)
 
-        # 4) Borde sutil alrededor del contenido
-        p.setBrush(Qt.BrushStyle.NoBrush)
+        # Calcular offset para centrar (letterbox vertical u horizontal)
+        x_off = (out_w - scaled.width()) // 2
+        y_off = (out_h - scaled.height()) // 2
+
+        p.drawImage(x_off, y_off, scaled)
+
+        # Borde gris alrededor de la hoja real
         p.setPen(Qt.GlobalColor.lightGray)
-        p.drawRect(
-            self._thumb_pad - 1,
-            self._thumb_pad - 1,
-            content_w + 1,
-            content_h + 1,
-        )
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRect(x_off - 1, y_off - 1, scaled.width() + 1, scaled.height() + 1)
+
         p.end()
 
         return QPixmap.fromImage(out)
