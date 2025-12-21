@@ -25,6 +25,7 @@ from src.models.project_data_manager import ProjectDataManager
 
 class Exeva1Page(QWidget):
     log_requested = pyqtSignal(str)
+    step2_requested = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -124,6 +125,11 @@ class Exeva1Page(QWidget):
         self.pbar.setVisible(False)
         self.pbar.setFixedWidth(200)
         self.command_bar.button_layout.addWidget(self.pbar)
+
+        self.btn_continue_step2 = self.command_bar.add_right_button(
+            "Continuar al Paso 2", object_name="BtnActionPrimary"
+        )
+        self.btn_continue_step2.clicked.connect(self._on_continue_step2_clicked)
 
         layout.addWidget(self.command_bar)
 
@@ -253,6 +259,11 @@ class Exeva1Page(QWidget):
         if not self.current_project_id:
             return
         self.down_anexos_controller.start_download(self.current_project_id)
+
+    def _on_continue_step2_clicked(self):
+        if not self.current_project_id:
+            return
+        self.step2_requested.emit(self.current_project_id)
 
     # --- SLOTS ASYNC ---
 
