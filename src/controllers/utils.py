@@ -25,6 +25,11 @@ def url_extension(url: str) -> str:
     return os.path.splitext(path)[1]
 
 
+def url_filename(url: str) -> str:
+    path = urlparse(url).path
+    return Path(path).name
+
+
 def _next_available_path(base_path: Path) -> Path:
     if not base_path.exists():
         return base_path

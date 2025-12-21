@@ -18,7 +18,7 @@ import os
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 # Importar utilidades centralizadas
-from .utils import log as _log, sanitize_filename, url_extension, download_binary
+from .utils import log as _log, sanitize_filename, url_extension, url_filename, download_binary
 
 
 def _doc_folder_name(n: str) -> str:
@@ -47,14 +47,16 @@ def _process_link_item(link_obj: dict, parent_n: str, out_base_dir: Path, detect
             pass
 
     titulo = link_obj.get("titulo", "archivo")
+    original_name = url_filename(url)
+    original_stem = Path(original_name).stem if original_name else ""
 
     # Crear carpeta del documento madre: Archivos_{IDP}/Anexos/{0004}/
     doc_dir = out_base_dir / _doc_folder_name(parent_n)
     doc_dir.mkdir(parents=True, exist_ok=True)
 
     # Definir nombre base y extensión
-    safe_title = sanitize_filename(titulo)
-    ext = url_extension(url) or ".bin"
+    safe_title = sanitize_filename(original_stem or titulo)
+    ext = Path(original_name).suffix or url_extension(url) or ".bin"
     target_path = doc_dir / (safe_title + ext)
 
     _log(log, f"[Worker] Procesando anexo: {safe_title}")
