@@ -22,6 +22,7 @@ from src.views.components.mini_status import MiniStatusBar
 from src.views.components.directorio import DirectorioDialog
 from src.models.project_data_manager import ProjectDataManager
 from src.controllers.unpack import UnpackController
+from src.controllers.indexar import IndexarController
 
 
 class Exeva2Page(QWidget):
@@ -47,6 +48,10 @@ class Exeva2Page(QWidget):
         self.unpack_controller.log_requested.connect(self.log_requested.emit)
         self.unpack_controller.unpack_started.connect(self._on_unpack_started)
         self.unpack_controller.unpack_finished.connect(self._on_unpack_finished)
+        self.index_controller = IndexarController(self)
+        self.index_controller.log_requested.connect(self.log_requested.emit)
+        self.index_controller.index_started.connect(self._on_index_started)
+        self.index_controller.index_finished.connect(self._on_index_finished)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -97,15 +102,19 @@ class Exeva2Page(QWidget):
         self.btn_back_step1 = self.command_bar.add_left_button(
             "Volver a Paso 1", object_name="BtnActionFolder"
         )
-        self.btn_unzip_index = self.command_bar.add_button(
-            "Descomprimir e indexar", object_name="BtnActionPrimary"
+        self.btn_download = self.command_bar.add_button(
+            "1. Descargar", object_name="BtnActionPrimary"
+        )
+        self.btn_index = self.command_bar.add_button(
+            "2. Indexar", object_name="BtnActionSecondary"
         )
         self.btn_continue_step3 = self.command_bar.add_right_button(
             "Continuar a paso 3", object_name="BtnActionPrimary"
         )
 
         self.btn_back_step1.clicked.connect(self._on_back_clicked)
-        self.btn_unzip_index.clicked.connect(self._on_unzip_index_clicked)
+        self.btn_download.clicked.connect(self._on_unzip_index_clicked)
+        self.btn_index.clicked.connect(self._on_index_clicked)
         self.btn_continue_step3.clicked.connect(self._on_continue_clicked)
 
         layout.addWidget(self.command_bar)
@@ -179,17 +188,33 @@ class Exeva2Page(QWidget):
             return
         self.unpack_controller.start_unpack(self.current_project_id)
 
+    def _on_index_clicked(self):
+        if not self.current_project_id:
+            return
+        self.index_controller.start_index(self.current_project_id)
+
     def _on_unpack_started(self) -> None:
-        self.btn_unzip_index.setEnabled(False)
-        self.log_requested.emit("⏳ Descomprimiendo archivos comprimidos...")
+        self.btn_download.setEnabled(False)
+        self.log_requested.emit("⏳ Descargando y descomprimiendo archivos comprimidos...")
 
     def _on_unpack_finished(self, success: bool, _data: dict) -> None:
-        self.btn_unzip_index.setEnabled(True)
+        self.btn_download.setEnabled(True)
         if success:
             self._load_results_tables()
             self.log_requested.emit("✅ Descompresión e indexación finalizadas.")
         else:
             self.log_requested.emit("⚠️ No se pudieron descomprimir archivos.")
+
+    def _on_index_started(self) -> None:
+        self.btn_index.setEnabled(False)
+        self.log_requested.emit("⏳ Indexando estructura de descomprimidos...")
+
+    def _on_index_finished(self, success: bool, _data: dict) -> None:
+        self.btn_index.setEnabled(True)
+        if success:
+            self.log_requested.emit("✅ Indexación completada.")
+        else:
+            self.log_requested.emit("⚠️ No se pudo indexar la información.")
 
     def _load_results_tables(self) -> None:
         exeva_payload = self.data_manager.load_exeva_data(self.current_project_id)
@@ -308,7 +333,7 @@ class Exeva2Page(QWidget):
         if link.get("error_descompresion") or link.get("error"):
             return "error"
         if link.get("descomprimidos"):
-            return "verificado"
+            return "edicion"
         return "detectado"
 
     def _attach_row_status_bars(self, card: EditableTableCard, rows: list[dict]) -> None:
