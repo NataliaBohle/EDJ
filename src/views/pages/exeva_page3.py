@@ -8,7 +8,6 @@ from PyQt6.QtWidgets import (
     QLabel,
     QHBoxLayout,
     QFrame,
-    QMessageBox,
     QAbstractItemView,
     QHeaderView,
     QPushButton,
@@ -21,6 +20,7 @@ from src.views.components.timeline import Timeline
 from src.views.components.results_table import EditableTableCard
 from src.views.components.pdf_viewer import PdfViewer
 from src.views.components.mini_status import MiniStatusBar
+from src.views.components.format_view import FormatViewDialog
 from src.models.project_data_manager import ProjectDataManager
 from src.controllers.eval_format import EvalFormatController
 
@@ -424,11 +424,38 @@ class Exeva3Page(QWidget):
 
     def _open_format_review(self, doc_data: dict) -> None:
         titulo = doc_data.get("titulo") or "Documento"
-        QMessageBox.information(
-            self,
-            "Revisión de formatos",
-            f"La revisión de formatos para '{titulo}' se implementará próximamente.",
-        )
+        files = self._collect_document_files(doc_data)
+        dialog = FormatViewDialog(titulo, files, self)
+        dialog.exec()
+
+    def _collect_document_files(self, doc_data: dict) -> list[dict]:
+        files: list[dict] = []
+        if isinstance(doc_data, dict):
+            files.append(doc_data)
+            self._collect_tree_files(doc_data.get("descomprimidos"), files)
+        for key in ("anexos_detectados", "vinculados_detectados"):
+            links = doc_data.get(key) or []
+            if not isinstance(links, list):
+                continue
+            for link in links:
+                if not isinstance(link, dict):
+                    continue
+                files.append(link)
+                self._collect_tree_files(link.get("descomprimidos"), files)
+        return files
+
+    def _collect_tree_files(self, node: dict | list | None, files: list[dict]) -> None:
+        if isinstance(node, list):
+            for item in node:
+                self._collect_tree_files(item, files)
+            return
+        if not isinstance(node, dict):
+            return
+        files.append(node)
+        contenido = node.get("contenido")
+        if isinstance(contenido, list):
+            for child in contenido:
+                self._collect_tree_files(child, files)
 
     def _derive_doc_status(self, doc_data: dict) -> str:
         has_links = self._doc_has_links(doc_data)
