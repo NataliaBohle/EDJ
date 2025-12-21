@@ -24,7 +24,10 @@ class StepController(QObject):
             return
 
         if code == "EXEVA":
-            self.main_window.show_exeva_page(project_id)
+            if step_index >= 2:
+                self.main_window.show_exeva_page2(project_id)
+            else:
+                self.main_window.show_exeva_page(project_id)
             return
 
         else:

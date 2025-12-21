@@ -110,16 +110,19 @@ class Exeva2Page(QWidget):
         self.current_project_id = pid
         self.is_loading = True
         self.header.title_label.setText(f"Expediente EXEVA - Paso 2 - ID {pid}")
-
-        data = self.data_manager.load_data(pid)
-        exeva_section = data.get("expedientes", {}).get("EXEVA", {})
-
-        step_idx = exeva_section.get("step_index", 0)
-        step_status = exeva_section.get("step_status", "detectado")
-        global_status = exeva_section.get("status", "detectado")
+        step_idx = 2
+        step_status = "detectado"
+        global_status = "detectado"
 
         self.timeline.set_current_step(step_idx, step_status)
         self.status_bar.set_status(global_status)
+        self.data_manager.update_step_status(
+            self.current_project_id,
+            "EXEVA",
+            step_index=step_idx,
+            step_status=step_status,
+            global_status=global_status,
+        )
         self.is_loading = False
 
     def save_status_change(self, new_status: str):
