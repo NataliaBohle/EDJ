@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QHBoxLayout,
     QFrame,
+    QPushButton,
     QAbstractItemView,
     QHeaderView,
 )
@@ -18,6 +19,7 @@ from src.views.components.command_bar import CommandBar
 from src.views.components.timeline import Timeline
 from src.views.components.results_table import EditableTableCard
 from src.views.components.mini_status import MiniStatusBar
+from src.views.components.directorio import DirectorioDialog
 from src.models.project_data_manager import ProjectDataManager
 from src.controllers.unpack import UnpackController
 
@@ -264,6 +266,7 @@ class Exeva2Page(QWidget):
                 "ruta": self._format_link_source(link),
                 "formato": formato,
                 "estado": self._derive_link_status(link),
+                "_link": link,
             })
         return rows
 
@@ -313,10 +316,40 @@ class Exeva2Page(QWidget):
             return
 
         for row_idx, row_data in enumerate(rows):
-            widget = MiniStatusBar(card.table)
-            widget.setEnabled(False)
-            widget.set_status(row_data.get("estado"))
+            widget = QWidget(card.table)
+            layout = QHBoxLayout(widget)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(6)
+
+            status = MiniStatusBar(widget)
+            status.setEnabled(False)
+            status.set_status(row_data.get("estado"))
+
+            btn_view = QPushButton("Ver directorio", widget)
+            btn_view.setObjectName("BtnActionSecondary")
+            btn_view.setEnabled(bool(row_data.get("_link")))
+            btn_view.clicked.connect(lambda _checked=False, link=row_data.get("_link"): self._show_directorio(link))
+
+            layout.addWidget(status)
+            layout.addWidget(btn_view)
+            layout.addStretch()
             card.table.setCellWidget(row_idx, status_column, widget)
+
+    def _show_directorio(self, link: dict | None) -> None:
+        if not link:
+            return
+        dialog = DirectorioDialog(self)
+        estructura = link.get("descomprimidos")
+        errores = link.get("errores_descompresion") or []
+
+        def _retry() -> None:
+            ruta = link.get("ruta")
+            if not ruta or not self.current_project_id:
+                return
+            self.unpack_controller.start_unpack_item(self.current_project_id, ruta)
+
+        dialog.set_data(estructura, errores, on_retry=_retry if errores else None)
+        dialog.exec()
 
     def _format_from_value(self, value: str | None) -> str | None:
         if not value:

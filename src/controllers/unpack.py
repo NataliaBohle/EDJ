@@ -202,7 +202,9 @@ def _process_item(item: dict, project_root: Path, exeva_root: Path,
         item["descomprimidos"] = _index_tree(out_dir, base_dir)
         if current_failures:
             for failure in current_failures:
-                _mark_unpack_error(item, failure.get("error", "Error de descompresión"))
+                archivo = failure.get("archivo") or Path(str(ruta)).name
+                error_msg = failure.get("error", "Error de descompresión")
+                _mark_unpack_error(item, f"{archivo}: {error_msg}")
         else:
             _clear_unpack_error(item)
         return True
@@ -264,25 +266,83 @@ def unpack_exeva_archives(idp: str, log: Callable[[str], None] | None = None) ->
     return exeva
 
 
+def unpack_exeva_item(idp: str, ruta: str, log: Callable[[str], None] | None = None) -> bool:
+    _set_unrar_tool(log)
+    payload = _load_payload(idp) or {}
+    exeva = payload.get("EXEVA")
+    if not isinstance(exeva, dict):
+        _log(log, "[UNPACK] No hay datos EXEVA para descomprimir.")
+        return False
+
+    documentos = exeva.get("documentos") or []
+    if not isinstance(documentos, list):
+        _log(log, "[UNPACK] Formato inesperado de documentos.")
+        return False
+
+    project_root = Path(os.getcwd()) / "Ebook" / idp
+    exeva_root = project_root / "EXEVA"
+
+    failures: list[dict] = []
+    changed = False
+    target = str(ruta).replace("\\", "/")
+
+    def _matches(item: dict) -> bool:
+        item_path = str(item.get("ruta") or "").replace("\\", "/")
+        return bool(item_path) and item_path == target
+
+    for doc in documentos:
+        if not isinstance(doc, dict):
+            continue
+        if _matches(doc):
+            if _process_item(doc, project_root, exeva_root, log, failures):
+                changed = True
+        for key in ("anexos_detectados", "vinculados_detectados"):
+            links = doc.get(key) or []
+            if not isinstance(links, list):
+                continue
+            for link in links:
+                if not isinstance(link, dict):
+                    continue
+                if _matches(link):
+                    if _process_item(link, project_root, exeva_root, log, failures):
+                        changed = True
+
+    if changed:
+        _save_payload(idp, payload)
+    else:
+        _log(log, "[UNPACK] No se encontró el archivo solicitado.")
+    return changed
+
+
 class UnpackWorker(QObject):
     finished_signal = pyqtSignal(bool, dict)
     log_signal = pyqtSignal(str)
 
-    def __init__(self, project_id: str):
+    def __init__(self, project_id: str, ruta: str | None = None):
         super().__init__()
         self.project_id = project_id
+        self.ruta = ruta
 
     @pyqtSlot()
     def run(self) -> None:
         success = False
         result_data: dict = {}
         try:
-            result_data = unpack_exeva_archives(self.project_id, log=self.log_signal.emit)
-            if result_data:
-                success = True
+            if self.ruta:
+                success = unpack_exeva_item(self.project_id, self.ruta, log=self.log_signal.emit)
+                if success:
+                    result_data = _load_payload(self.project_id).get("EXEVA", {})
+            else:
+                result_data = unpack_exeva_archives(self.project_id, log=self.log_signal.emit)
+                success = bool(result_data)
+
+            if success:
                 self.log_signal.emit("✅ Descompresión e indexación completadas.")
             else:
-                self.log_signal.emit("⚠️ No hay datos para descomprimir.")
+                if self.ruta:
+                    self.log_signal.emit("⚠️ No se pudo descomprimir el archivo solicitado.")
+                else:
+                    self.log_signal.emit("⚠️ No hay datos para descomprimir.")
         except Exception as exc:
             self.log_signal.emit(f"❌ Error inesperado durante la descompresión: {exc}")
         self.finished_signal.emit(success, result_data)
@@ -299,13 +359,19 @@ class UnpackController(QObject):
         self.thread: QThread | None = None
 
     def start_unpack(self, project_id: str) -> None:
+        self._start_unpack(project_id, None)
+
+    def start_unpack_item(self, project_id: str, ruta: str) -> None:
+        self._start_unpack(project_id, ruta)
+
+    def _start_unpack(self, project_id: str, ruta: str | None) -> None:
         if self.thread and self.thread.isRunning():
             self.log_requested.emit("⚠️ La descompresión ya está en curso.")
             return
 
         self.unpack_started.emit()
         self.thread = QThread()
-        self.worker = UnpackWorker(project_id)
+        self.worker = UnpackWorker(project_id, ruta)
 
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
