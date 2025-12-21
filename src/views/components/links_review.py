@@ -123,10 +123,10 @@ class LinksReviewDialog(QDialog):
                 item_st.setForeground(QColor("red"))
                 item_st.setBackground(QColor("#ffebee"))
             elif has_ruta:
-                item_st = QTableWidgetItem("OK")
+                item_st = QTableWidgetItem("Descargado")
                 item_st.setForeground(QColor("green"))
             else:
-                item_st = QTableWidgetItem("Pendiente")
+                item_st = QTableWidgetItem("Por Descargar")
                 item_st.setForeground(QColor("gray"))
             item_st.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(i, 3, item_st)
