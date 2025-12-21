@@ -126,6 +126,7 @@ class PageOrganizer(QDialog):
         self._thumb_w = 360  # miniaturas iniciales más legibles
         self._thumb_w_min = 260
         self._thumb_w_max = 600
+        self._thumb_pad = 12
         self._thumb_step = 60
 
         self.btn_zoom_out = QPushButton("−")
@@ -291,7 +292,9 @@ class PageOrganizer(QDialog):
             page_ratio = float(ps.height()) / float(ps.width())
 
         # Render en una resolución moderada conservando proporción
-        max_side = max(1200, max(out_w, out_h) * 6)
+        content_w = max(40, out_w - (self._thumb_pad * 2))
+        content_h = max(40, out_h - (self._thumb_pad * 2))
+        max_side = max(1200, max(content_w, content_h) * 6)
         if page_ratio >= 1:
             render_w = max_side
             render_h = int(max_side * page_ratio)
@@ -324,10 +327,10 @@ class PageOrganizer(QDialog):
             t.rotate(rot_n)
             img = img.transformed(t, Qt.TransformationMode.SmoothTransformation)
 
-        # 2) Escalar para que quepa dentro de la caja final (manteniendo aspecto)
+        # 2) Escalar para llenar el área de contenido (manteniendo aspecto)
         scaled = img.scaled(
-            QSize(out_w, out_h),
-            Qt.AspectRatioMode.KeepAspectRatio,
+            QSize(content_w, content_h),
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
             Qt.TransformationMode.SmoothTransformation,
         )
 
@@ -336,14 +339,19 @@ class PageOrganizer(QDialog):
         out.fill(0xFFFFFFFF)
 
         p = QPainter(out)
-        x = (out_w - scaled.width()) // 2
-        y = (out_h - scaled.height()) // 2
+        x = self._thumb_pad + (content_w - scaled.width()) // 2
+        y = self._thumb_pad + (content_h - scaled.height()) // 2
         p.drawImage(x, y, scaled)
 
-        # 4) Borde sutil
+        # 4) Borde sutil alrededor del contenido
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.setPen(Qt.GlobalColor.lightGray)
-        p.drawRect(0, 0, out_w - 1, out_h - 1)
+        p.drawRect(
+            self._thumb_pad - 1,
+            self._thumb_pad - 1,
+            content_w + 1,
+            content_h + 1,
+        )
         p.end()
 
         return QPixmap.fromImage(out)
