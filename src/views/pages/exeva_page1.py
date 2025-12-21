@@ -562,8 +562,10 @@ class Exeva1Page(QWidget):
             target_status = "error"
         elif all(status == "verificado" for status in statuses):
             target_status = "verificado"
-        else:
+        elif any(status != "verificado" for status in statuses):
             target_status = "edicion"
+        else:
+            target_status = "detectado"
 
         self.status_bar.set_status(target_status)
         idx = self.timeline.current_step
