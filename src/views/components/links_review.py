@@ -114,34 +114,41 @@ class LinksReviewDialog(QDialog):
             origen = link.get("origen", "desc")
             self.table.setItem(i, 2, QTableWidgetItem(origen))
 
-            # 3. Estado (Nuevo)
+            # 3. Estado + Reintentar (según corresponda)
             has_error = link.get("error")
             has_ruta = link.get("ruta")
 
+            w_status = QWidget()
+            l_status = QHBoxLayout(w_status)
+            l_status.setContentsMargins(4, 2, 4, 2)
+
+            item_st = QTableWidgetItem()
             if has_error:
-                item_st = QTableWidgetItem("Error")
+                item_st.setText("Error")
                 item_st.setForeground(QColor("red"))
                 item_st.setBackground(QColor("#ffebee"))
             elif has_ruta:
-                item_st = QTableWidgetItem("Descargado")
+                item_st.setText("Descargado")
                 item_st.setForeground(QColor("green"))
             else:
-                item_st = QTableWidgetItem("Por Descargar")
+                item_st.setText("Por Descargar")
                 item_st.setForeground(QColor("gray"))
             item_st.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(i, 3, item_st)
 
-            # 4. Acción 1 (Reintentar y Borrar)
-            w_acc1 = QWidget()
-            l_acc1 = QHBoxLayout(w_acc1);
-            l_acc1.setContentsMargins(4, 2, 4, 2)
+            if has_ruta or has_error:
+                btn_retry = QPushButton("Reintentar")
+                btn_retry.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn_retry.setStyleSheet(
+                    "border: 1px solid #f59e0b; border-radius: 4px; background: #fef3c7; color: #b45309;")
+                btn_retry.clicked.connect(lambda _, idx=i: self._retry_link(idx))
+                l_status.addWidget(btn_retry)
+                self.table.setCellWidget(i, 3, w_status)
 
-            btn_retry = QPushButton("Reintentar")
-            btn_retry.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn_retry.setStyleSheet(
-                "border: 1px solid #f59e0b; border-radius: 4px; background: #fef3c7; color: #b45309;")
-            btn_retry.clicked.connect(lambda _, idx=i: self._retry_link(idx))
-            l_acc1.addWidget(btn_retry)
+            # 4. Acción 1 (Borrar)
+            w_acc1 = QWidget()
+            l_acc1 = QHBoxLayout(w_acc1)
+            l_acc1.setContentsMargins(4, 2, 4, 2)
 
             btn_del = QPushButton("Borrar")
             btn_del.setCursor(Qt.CursorShape.PointingHandCursor)
