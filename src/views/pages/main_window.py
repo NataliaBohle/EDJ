@@ -112,6 +112,8 @@ class MainWindow(QMainWindow):
         self.exeva_page.step2_requested.connect(self.show_exeva_page2)
         self.exeva_page2.back_requested.connect(self.show_exeva_page)
         self.exeva_page2.continue_requested.connect(self.show_exeva_page3)
+        self.exeva_page3.back_requested.connect(self.show_exeva_page2)
+        self.exeva_page3.continue_requested.connect(self.show_exeva_page4)
 
 
         # --- 5. TAMAÑOS INICIALES ---
@@ -165,6 +167,9 @@ class MainWindow(QMainWindow):
         self.log_screen.add_log(f"Entrando a EXEVA Paso 3: {project_id}")
         self.exeva_page3.load_project(project_id)
         self.workspace_stack.setCurrentWidget(self.exeva_page3)
+
+    def show_exeva_page4(self, project_id):
+        self.log_screen.add_log(f"⚠️ EXEVA Paso 4 no está implementado: {project_id}")
 
     def on_continue_expediente(self):
         self.log_screen.add_log("Retomando expediente existente...")

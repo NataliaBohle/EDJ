@@ -27,6 +27,8 @@ from src.controllers.eval_format import EvalFormatController
 
 class Exeva3Page(QWidget):
     log_requested = pyqtSignal(str)
+    back_requested = pyqtSignal(str)
+    continue_requested = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -93,6 +95,9 @@ class Exeva3Page(QWidget):
         self.command_bar = CommandBar()
         self.command_bar.layout().setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        self.btn_back_step2 = self.command_bar.add_left_button(
+            "Volver a Paso 2", object_name="BtnActionFolder"
+        )
         self.btn_eval_formato = self.command_bar.add_button(
             "Evaluar Formato", object_name="BtnActionPrimary"
         )
@@ -102,8 +107,13 @@ class Exeva3Page(QWidget):
         self.btn_format_edit = self.command_bar.add_button(
             "Formatear solo en edición", object_name="BtnActionPrimary"
         )
+        self.btn_continue_step4 = self.command_bar.add_right_button(
+            "Continuar a paso 4", object_name="BtnActionPrimary"
+        )
 
+        self.btn_back_step2.clicked.connect(self._on_back_clicked)
         self.btn_eval_formato.clicked.connect(self._on_eval_clicked)
+        self.btn_continue_step4.clicked.connect(self._on_continue_clicked)
 
         layout.addWidget(self.command_bar)
 
@@ -213,6 +223,16 @@ class Exeva3Page(QWidget):
         if not self.current_project_id:
             return
         self.eval_controller.start_eval(self.current_project_id)
+
+    def _on_back_clicked(self):
+        if not self.current_project_id:
+            return
+        self.back_requested.emit(self.current_project_id)
+
+    def _on_continue_clicked(self):
+        if not self.current_project_id:
+            return
+        self.continue_requested.emit(self.current_project_id)
 
     def _on_eval_started(self) -> None:
         self.btn_eval_formato.setEnabled(False)
