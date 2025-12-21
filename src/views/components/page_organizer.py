@@ -237,11 +237,32 @@ class PageOrganizer(QDialog):
         self._rotations.clear()
         self.saved = False
 
-        ps = self.doc.pagePointSize(0)
-        if not ps.isEmpty() and ps.width() > 0 and ps.height() > 0:
-            self._page_ratio = float(ps.height()) / float(ps.width())
+        # --- LÓGICA MEJORADA: Detección inteligente de ratio (Mediana) ---
+        ratios = []
+        # Escaneamos solo las primeras 20 páginas para no perder rendimiento
+        scan_limit = min(self._page_count, 20)
+
+        for i in range(scan_limit):
+            ps = self.doc.pagePointSize(i)
+            if not ps.isEmpty() and ps.width() > 0:
+                # Calculamos proporción: alto / ancho
+                ratios.append(float(ps.height()) / float(ps.width()))
+
+        if ratios:
+            # Ordenamos para encontrar la mediana (el valor central)
+            # Esto evita que un solo plano gigante deforme el grid de un informe A4
+            ratios.sort()
+            median_ratio = ratios[len(ratios) // 2]
+
+            # Aplicamos límites de seguridad (Clamp)
+            # Mínimo 0.6 (muy apaisado) - Máximo 1.8 (muy vertical)
+            # Así evitamos que documentos extraños rompan la interfaz visualmente
+            self._page_ratio = max(0.6, min(median_ratio, 1.8))
         else:
+            # Valor por defecto si no se pudo leer geometría
             self._page_ratio = 1.35
+
+            # ---------------------------------------------------------------
 
         self._apply_thumb_sizes()
         self._build_items()
