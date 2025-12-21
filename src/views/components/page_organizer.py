@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt, QSize, QTimer
-from PyQt6.QtGui import QPixmap, QImage, QPainter, QTransform, QAction
+from PyQt6.QtGui import QPixmap, QImage, QPainter, QTransform, QAction, QIcon
 from PyQt6.QtWidgets import (
     QDialog,
     QWidget,
@@ -123,6 +123,18 @@ class PageOrganizer(QDialog):
         self.btn_save.clicked.connect(self._save)
         self.btn_close.clicked.connect(self.close)
 
+        self._thumb_w = 300  # antes 240: demasiado chico para texto en tu PDF
+        self._thumb_w_min = 220
+        self._thumb_w_max = 520
+        self._thumb_step = 60
+
+        self.btn_zoom_out = QPushButton("−")
+        self.btn_zoom_in = QPushButton("+")
+        self.btn_zoom_out.setToolTip("Reducir miniaturas")
+        self.btn_zoom_in.setToolTip("Aumentar miniaturas")
+        self.btn_zoom_out.clicked.connect(lambda: self._change_zoom(-1))
+        self.btn_zoom_in.clicked.connect(lambda: self._change_zoom(+1))
+
         bl.addWidget(self.btn_l_all)
         bl.addWidget(self.btn_l_cur)
         bl.addWidget(self.btn_r_cur)
@@ -130,6 +142,8 @@ class PageOrganizer(QDialog):
         bl.addWidget(self.btn_save)
         bl.addWidget(self.btn_close)
         bl.addWidget(self.lbl, 1)
+        bl.addWidget(self.btn_zoom_out)
+        bl.addWidget(self.btn_zoom_in)
 
         root.addWidget(bar)
 
@@ -141,10 +155,10 @@ class PageOrganizer(QDialog):
         self.list.setSpacing(10)
         self.list.setUniformItemSizes(True)
         self.list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
-        self.list.setIconSize(QSize(240, 320))
+        self._apply_thumb_sizes()
         self.list.setStyleSheet("""
-            QListWidget::item { border: 1px solid transparent; padding: 6px; }
-            QListWidget::item:selected { background: transparent; border: 1px solid #5aa0ff; }
+            QListWidget::item { border: 2px solid transparent; padding: 6px; }
+            QListWidget::item:selected { background: white; border: 2px solid #5aa0ff; }
         """)
 
         # Context menu
@@ -162,6 +176,37 @@ class PageOrganizer(QDialog):
         self.doc = QPdfDocument(self) if QT_PDF_AVAILABLE else None
 
         self._load()
+
+    def _apply_thumb_sizes(self) -> None:
+        w = int(self._thumb_w)
+        h = int(w * 1.35)
+
+        # tamaño del icono (imagen)
+        self.list.setIconSize(QSize(w, h))
+
+        # tamaño de la celda (icono + texto + padding)
+        self.list.setGridSize(QSize(w + 60, h + 90))
+
+        # tamaño mínimo del item (evita colapsos raros)
+        self.list.setSpacing(14)
+
+        # Forzar relayout real
+        self.list.doItemsLayout()
+        self.list.viewport().update()
+
+    def _change_zoom(self, direction: int) -> None:
+        if direction > 0:
+            self._thumb_w = min(self._thumb_w_max, self._thumb_w + self._thumb_step)
+        else:
+            self._thumb_w = max(self._thumb_w_min, self._thumb_w - self._thumb_step)
+
+        self._apply_thumb_sizes()
+
+        # Re-render con el nuevo iconSize, manteniendo los mismos items
+        for i in range(self._page_count):
+            self._refresh_item(i)
+
+        self._set_status()
 
     def _load(self) -> None:
         if not os.path.exists(self.pdf_path) or not self.pdf_path.lower().endswith(".pdf"):
@@ -219,51 +264,100 @@ class PageOrganizer(QDialog):
 
         it = self.list.item(i)
         if it is not None:
-            pix = self._render_thumb(i, target_w=240)
             rot = _norm_rot(self._rotations.get(i, 0))
+            pix = self._render_thumb(i, rot=rot, target_w=self._thumb_w)
+
             if rot:
-                pix = self._rotate_pix(pix, rot)
-                it.setText(f"{i+1}  ⟳{rot}°")
+                it.setText(f"{i + 1}  ⟳{rot}°")
             else:
-                it.setText(f"{i+1}")
-            it.setIcon(pix)
+                it.setText(f"{i + 1}")
+            it.setIcon(QIcon(pix))
 
         self._render_i = i + 1
         QTimer.singleShot(0, self._render_step)
 
-    def _render_thumb(self, page_idx: int, target_w: int) -> QPixmap:
-        ps = self.doc.pagePointSize(page_idx)
-        if ps.isEmpty() or ps.width() <= 0 or ps.height() <= 0:
-            render_size = QSize(target_w * 3, target_w * 4)
-        else:
-            ratio = float(ps.height()) / float(ps.width())
-            target_h = max(120, int(target_w * ratio))
-            render_size = QSize(target_w * 3, target_h * 3)
+    def _render_thumb(self, page_idx: int, rot: int, target_w: int) -> QPixmap:
+        # Caja final (lo que realmente se verá en el grid)
+        icon_size = self.list.iconSize()
+        out_w = max(80, int(icon_size.width()))
+        out_h = max(80, int(icon_size.height()))
 
-        img = self.doc.render(page_idx, render_size)
+        ps = self.doc.pagePointSize(page_idx)
+
+        # Proporción base de página (sin rotación)
+        if ps.isEmpty() or ps.width() <= 0 or ps.height() <= 0:
+            page_ratio = 1.35
+            is_landscape_base = False
+        else:
+            page_ratio = float(ps.height()) / float(ps.width())
+            is_landscape_base = ps.width() > ps.height()
+
+        # Render en una resolución moderada (no gigante)
+        # Usa base del tamaño final para que no reviente memoria y no salga negro.
+        render_w = max(1200, out_w * 6)
+        render_h = max(1600, out_h * 6)
+
+        img = self.doc.render(page_idx, QSize(render_w, render_h))
+
         if img.isNull():
-            pm = QPixmap(render_size)
+            pm = QPixmap(QSize(out_w, out_h))
             pm.fill(Qt.GlobalColor.white)
+            painter = QPainter(pm)
+            painter.setPen(Qt.GlobalColor.lightGray)
+            painter.drawRect(0, 0, pm.width() - 1, pm.height() - 1)
+            painter.setPen(Qt.GlobalColor.gray)
+            painter.drawText(10, 20, f"Página {page_idx + 1}")
+            painter.end()
             return pm
 
+        # Normaliza formato
         img = img.convertToFormat(QImage.Format.Format_ARGB32)
 
-        # fondo blanco (evita transparencias oscuras)
-        out = QImage(img.size(), QImage.Format.Format_ARGB32)
+        # Si hay rotación 90/270, cambia orientación visible
+        rot_n = _norm_rot(rot)
+        is_landscape = is_landscape_base
+        if rot_n in (90, 270):
+            is_landscape = not is_landscape_base
+
+        # 1) Rotar la imagen ANTES de escalar (así no se deforma)
+        if rot_n:
+            t = QTransform()
+            t.rotate(rot_n)
+            img = img.transformed(t, Qt.TransformationMode.SmoothTransformation)
+
+        # 2) Escalar para que quepa dentro de la caja final (manteniendo aspecto)
+        scaled = img.scaled(
+            QSize(out_w, out_h),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+
+        # 3) Componer sobre fondo blanco (evita transparencias/negros)
+        out = QImage(QSize(out_w, out_h), QImage.Format.Format_ARGB32)
         out.fill(0xFFFFFFFF)
+
         p = QPainter(out)
-        p.drawImage(0, 0, img)
+        x = (out_w - scaled.width()) // 2
+        y = (out_h - scaled.height()) // 2
+        p.drawImage(x, y, scaled)
+
+        # 4) Franja negra (sobre el tamaño final)
+        band = 10 # ~6% (visible en miniatura)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(Qt.GlobalColor.black)
+
+        if is_landscape:
+            p.drawRect(0, 0, band, out_h)  # lateral izquierda
+        else:
+            p.drawRect(0, 0, out_w, band)  # vertical -> franja superior
+
+        # 5) Borde sutil
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(Qt.GlobalColor.lightGray)
+        p.drawRect(0, 0, out_w - 1, out_h - 1)
         p.end()
 
-        pm = QPixmap.fromImage(out)
-        return pm.scaled(QSize(target_w, int(target_w * 1.4)),
-                         Qt.AspectRatioMode.KeepAspectRatio,
-                         Qt.TransformationMode.SmoothTransformation)
-
-    def _rotate_pix(self, pm: QPixmap, deg: int) -> QPixmap:
-        t = QTransform()
-        t.rotate(_norm_rot(deg))
-        return pm.transformed(t, Qt.TransformationMode.SmoothTransformation)
+        return QPixmap.fromImage(out)
 
     def _selected_index(self) -> Optional[int]:
         sel = self.list.selectedItems()
@@ -304,14 +398,16 @@ class PageOrganizer(QDialog):
         it = self.list.item(idx)
         if it is None:
             return
-        pix = self._render_thumb(idx, target_w=240)
+
         rot = _norm_rot(self._rotations.get(idx, 0))
+        pix = self._render_thumb(idx, rot=rot, target_w=self._thumb_w)
+
         if rot:
-            pix = self._rotate_pix(pix, rot)
-            it.setText(f"{idx+1}  ⟳{rot}°")
+            it.setText(f"{idx + 1}  ⟳{rot}°")
         else:
-            it.setText(f"{idx+1}")
-        it.setIcon(pix)
+            it.setText(f"{idx + 1}")
+
+        it.setIcon(QIcon(pix))
 
     def _save(self) -> None:
         if not self._rotations:
