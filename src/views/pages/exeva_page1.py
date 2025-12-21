@@ -164,8 +164,12 @@ class Exeva1Page(QWidget):
         self.results_table.btn_add_row.setVisible(False)
         self.results_table.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         header = self.results_table.table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        header.setStretchLastSection(False)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        fixed_cols = {"n", "folio", "fecha", "estado_doc", "anexos_detectados", "vinculados_detectados", "ver_anexos", "ver_doc"}
+        for idx, (key, _label) in enumerate(self.results_table.columns):
+            if key in fixed_cols:
+                header.setSectionResizeMode(idx, QHeaderView.ResizeMode.ResizeToContents)
+        header.setStretchLastSection(True)
         self.results_table.setVisible(False)
         self.content_layout.addWidget(self.results_table)
 
