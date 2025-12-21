@@ -131,26 +131,23 @@ class LinksReviewDialog(QDialog):
             item_st.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(i, 3, item_st)
 
-            # 4. Acción 1 (Borrar o Reintentar)
+            # 4. Acción 1 (Reintentar y Borrar)
             w_acc1 = QWidget()
             l_acc1 = QHBoxLayout(w_acc1);
             l_acc1.setContentsMargins(4, 2, 4, 2)
 
-            if has_error:
-                # Mostrar botón REINTENTAR
-                btn_retry = QPushButton("Reintentar")
-                btn_retry.setCursor(Qt.CursorShape.PointingHandCursor)
-                btn_retry.setStyleSheet(
-                    "border: 1px solid #f59e0b; border-radius: 4px; background: #fef3c7; color: #b45309;")
-                btn_retry.clicked.connect(lambda _, idx=i: self._retry_link(idx))
-                l_acc1.addWidget(btn_retry)
-            else:
-                # Mostrar botón BORRAR
-                btn_del = QPushButton("Borrar")
-                btn_del.setCursor(Qt.CursorShape.PointingHandCursor)
-                btn_del.setStyleSheet("border: 1px solid #ccc; border-radius: 4px; background: #f8f9fa; color: #333;")
-                btn_del.clicked.connect(lambda _, idx=i: self._delete_link(idx))
-                l_acc1.addWidget(btn_del)
+            btn_retry = QPushButton("Reintentar")
+            btn_retry.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_retry.setStyleSheet(
+                "border: 1px solid #f59e0b; border-radius: 4px; background: #fef3c7; color: #b45309;")
+            btn_retry.clicked.connect(lambda _, idx=i: self._retry_link(idx))
+            l_acc1.addWidget(btn_retry)
+
+            btn_del = QPushButton("Borrar")
+            btn_del.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_del.setStyleSheet("border: 1px solid #ccc; border-radius: 4px; background: #f8f9fa; color: #333;")
+            btn_del.clicked.connect(lambda _, idx=i: self._delete_link(idx))
+            l_acc1.addWidget(btn_del)
 
             self.table.setCellWidget(i, 4, w_acc1)
 
