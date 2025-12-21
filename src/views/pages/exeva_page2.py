@@ -35,6 +35,7 @@ class Exeva2Page(QWidget):
         self.current_project_id = None
         self.is_loading = False
         self.result_cards = []
+        self.exeva_payload = {}
 
         self._init_controllers()
         self._setup_ui()
@@ -192,6 +193,7 @@ class Exeva2Page(QWidget):
 
     def _load_results_tables(self) -> None:
         exeva_payload = self.data_manager.load_exeva_data(self.current_project_id)
+        self.exeva_payload = exeva_payload or {}
         documentos = exeva_payload.get("EXEVA", {}).get("documentos", [])
         self._render_compressed_tables(documentos)
 
@@ -300,6 +302,9 @@ class Exeva2Page(QWidget):
         return None
 
     def _derive_link_status(self, link: dict) -> str:
+        manual_status = (link.get("estado_descompresion") or "").strip().lower()
+        if manual_status:
+            return manual_status
         if link.get("error_descompresion") or link.get("error"):
             return "error"
         if link.get("descomprimidos"):
@@ -322,8 +327,12 @@ class Exeva2Page(QWidget):
             layout.setSpacing(6)
 
             status = MiniStatusBar(widget)
-            status.setEnabled(False)
             status.set_status(row_data.get("estado"))
+            link_ref = row_data.get("_link")
+            if link_ref is not None:
+                status.status_changed.connect(
+                    lambda value, link=link_ref: self._on_row_status_changed(link, value)
+                )
 
             btn_view = QPushButton("Ver directorio", widget)
             btn_view.setObjectName("BtnActionSecondary")
@@ -346,10 +355,16 @@ class Exeva2Page(QWidget):
             ruta = link.get("ruta")
             if not ruta or not self.current_project_id:
                 return
+            dialog.close()
             self.unpack_controller.start_unpack_item(self.current_project_id, ruta)
 
         dialog.set_data(estructura, errores, on_retry=_retry if errores else None)
         dialog.exec()
+
+    def _on_row_status_changed(self, link: dict, status: str) -> None:
+        link["estado_descompresion"] = status
+        if self.current_project_id and self.exeva_payload:
+            self.data_manager.save_exeva_data(self.current_project_id, self.exeva_payload)
 
     def _format_from_value(self, value: str | None) -> str | None:
         if not value:
