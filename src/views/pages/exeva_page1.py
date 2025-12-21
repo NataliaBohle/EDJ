@@ -14,6 +14,7 @@ from src.views.components.timeline import Timeline
 from src.views.components.results_table import EditableTableCard
 from src.views.components.pdf_viewer import PdfViewer
 from src.views.components.links_review import LinksReviewDialog
+from src.views.components.mini_status import MiniStatusBar
 
 # Controladores y Modelos de antgen
 from src.controllers.fetch_exeva import FetchExevaController
@@ -30,6 +31,8 @@ class Exeva1Page(QWidget):
         self.setObjectName("Exeva1Page")
         self.current_project_id = None
         self.is_loading = False
+        self.exeva_payload = {}
+        self.documentos = []
 
         # 1. Inicializar Lógica de Negocio (Controladores y Modelos)
         self._init_controllers()
@@ -149,6 +152,7 @@ class Exeva1Page(QWidget):
                 ("titulo", "Nombre"),
                 ("remitido_por", "Remitido por"),
                 ("fecha", "Fecha"),
+                ("estado_doc", "Estado"),
                 ("anexos_detectados", "Anexos"),
                 ("vinculados_detectados", "Vinculados"),
                 ("ver_anexos", "Ver anexos"),
@@ -156,6 +160,7 @@ class Exeva1Page(QWidget):
             ],
             parent=self.content_widget,
         )
+        self.results_table.status_bar.setVisible(False)
         self.results_table.btn_add_row.setVisible(False)
         self.results_table.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         header = self.results_table.table.horizontalHeader()
@@ -176,6 +181,7 @@ class Exeva1Page(QWidget):
         data = self.data_manager.load_data(pid)
         exeva_section = data.get("expedientes", {}).get("EXEVA", {})
         exeva_payload = self.data_manager.load_exeva_data(pid)
+        self.exeva_payload = exeva_payload or {}
 
         step_idx = exeva_section.get("step_index", 0)
         step_status = exeva_section.get("step_status", "detectado")
@@ -185,6 +191,7 @@ class Exeva1Page(QWidget):
         self.status_bar.set_status(global_status)
 
         documentos = exeva_payload.get("EXEVA", {}).get("documentos", [])
+        self.documentos = documentos
         has_docs = bool(documentos)
 
         if has_docs:
@@ -246,7 +253,9 @@ class Exeva1Page(QWidget):
         self.pbar.setRange(0, 100)
 
         if success:
+            self.exeva_payload = data or {}
             documentos = data.get("EXEVA", {}).get("documentos", [])
+            self.documentos = documentos
             total = len(documentos)
             self.lbl_placeholder.setText(f"Expediente descargado: {total} documentos detectados.")
             self.lbl_placeholder.setVisible(True)
@@ -277,7 +286,9 @@ class Exeva1Page(QWidget):
 
         if success:
             exeva_payload = self.data_manager.load_exeva_data(self.current_project_id)
+            self.exeva_payload = exeva_payload or {}
             documentos = exeva_payload.get("EXEVA", {}).get("documentos", [])
+            self.documentos = documentos
             self._set_results_table(documentos)
             self.log_requested.emit("✅ Anexos detectados y tabla actualizada.")
         else:
@@ -295,13 +306,16 @@ class Exeva1Page(QWidget):
 
         if success:
             exeva_payload = self.data_manager.load_exeva_data(self.current_project_id)
+            self.exeva_payload = exeva_payload or {}
             documentos = exeva_payload.get("EXEVA", {}).get("documentos", [])
+            self.documentos = documentos
             self._set_results_table(documentos)
             self.log_requested.emit("✅ Descarga de anexos finalizada y tabla actualizada.")
         else:
             self.log_requested.emit("⚠️ No se pudieron descargar anexos.")
 
     def _set_results_table(self, documentos: list[dict]) -> None:
+        self.documentos = documentos
         rows = [
             {
                 "n": doc.get("n", ""),
@@ -309,6 +323,7 @@ class Exeva1Page(QWidget):
                 "titulo": doc.get("titulo", ""),
                 "remitido_por": doc.get("remitido_por", ""),
                 "fecha": doc.get("fecha", ""),
+                "estado_doc": "",
                 "anexos_detectados": str(len(doc.get("anexos_detectados") or [])),
                 "vinculados_detectados": str(len(doc.get("vinculados_detectados") or [])),
                 "ver_anexos": "",
@@ -330,6 +345,19 @@ class Exeva1Page(QWidget):
                     button.setObjectName("BtnActionSecondary")
                     button.clicked.connect(partial(self._open_pdf_viewer, doc))
                     self.results_table.table.setCellWidget(row_idx, ver_col, button)
+            estado_col = next(
+                (idx for idx, (key, _label) in enumerate(self.results_table.columns) if key == "estado_doc"),
+                None,
+            )
+            if estado_col is not None:
+                for row_idx, doc in enumerate(documentos):
+                    status_widget = MiniStatusBar(self.results_table.table)
+                    status = self._derive_doc_status(doc)
+                    status_widget.set_status(status)
+                    status_widget.status_changed.connect(
+                        partial(self._on_row_status_changed, doc, status_widget)
+                    )
+                    self.results_table.table.setCellWidget(row_idx, estado_col, status_widget)
             anexos_col = next(
                 (idx for idx, (key, _label) in enumerate(self.results_table.columns) if key == "ver_anexos"),
                 None,
@@ -344,6 +372,7 @@ class Exeva1Page(QWidget):
                         button.clicked.connect(partial(self._open_links_review, doc))
                         self.results_table.table.setCellWidget(row_idx, anexos_col, button)
             self.results_table.table.resizeColumnsToContents()
+            self._update_global_status_from_rows()
 
     def _open_pdf_viewer(self, doc_data: dict) -> None:
         viewer = PdfViewer(doc_data, self, self.current_project_id)
@@ -387,6 +416,7 @@ class Exeva1Page(QWidget):
 
                 # ACTUALIZAR LA UI
                 self._refresh_row_counts(doc_data)
+                self._refresh_row_status(doc_data)
                 self.log_requested.emit(f"Enlaces actualizados para documento N° {parent_n}")
 
     def _refresh_row_counts(self, doc_data: dict):
@@ -419,7 +449,92 @@ class Exeva1Page(QWidget):
                     table.item(r, col_anex).setText(str(n_a))
                 if col_vinc != -1:
                     table.item(r, col_vinc).setText(str(n_v))
+                self._refresh_row_status(doc_data, row_index=r)
                 return
+
+    def _refresh_row_status(self, doc_data: dict, row_index: int | None = None) -> None:
+        table = self.results_table.table
+        col_status = next(
+            (idx for idx, (key, _label) in enumerate(self.results_table.columns) if key == "estado_doc"),
+            None,
+        )
+        if col_status is None:
+            return
+
+        if row_index is None:
+            target_n = str(doc_data.get("n") or "")
+            col_n = next(
+                (idx for idx, (key, _label) in enumerate(self.results_table.columns) if key == "n"),
+                None,
+            )
+            if col_n is None:
+                return
+            for r in range(table.rowCount()):
+                item = table.item(r, col_n)
+                if item and item.text() == target_n:
+                    row_index = r
+                    break
+
+        if row_index is None:
+            return
+
+        widget = table.cellWidget(row_index, col_status)
+        if isinstance(widget, MiniStatusBar):
+            status = self._derive_doc_status(doc_data)
+            widget.set_status(status)
+        self._update_global_status_from_rows()
+
+    def _derive_doc_status(self, doc_data: dict) -> str:
+        has_error = self._doc_has_error_links(doc_data)
+        current = (doc_data.get("estado_validacion") or "").strip().lower()
+        if has_error:
+            doc_data["estado_validacion"] = "error"
+            return "error"
+        if current == "error":
+            doc_data["estado_validacion"] = "detectado"
+            return "detectado"
+        return current or "detectado"
+
+    def _doc_has_error_links(self, doc_data: dict) -> bool:
+        for item in (doc_data.get("anexos_detectados") or []) + (doc_data.get("vinculados_detectados") or []):
+            if item.get("error"):
+                return True
+        return False
+
+    def _on_row_status_changed(self, doc_data: dict, widget: MiniStatusBar, status: str) -> None:
+        if self._doc_has_error_links(doc_data):
+            widget.set_status("error")
+            doc_data["estado_validacion"] = "error"
+        else:
+            doc_data["estado_validacion"] = status
+        self._persist_exeva_payload()
+        self._update_global_status_from_rows()
+
+    def _persist_exeva_payload(self) -> None:
+        if not self.current_project_id:
+            return
+        payload = dict(self.exeva_payload or {})
+        payload.setdefault("EXEVA", {})
+        payload["EXEVA"]["documentos"] = self.documentos
+        self.exeva_payload = payload
+        self.data_manager.save_exeva_data(self.current_project_id, payload)
+
+    def _update_global_status_from_rows(self) -> None:
+        if not self.documentos:
+            return
+        statuses = [self._derive_doc_status(doc) for doc in self.documentos]
+        if statuses and all(status == "verificado" for status in statuses):
+            if self.status_bar.get_status() != "verificado":
+                self.status_bar.set_status("verificado")
+                idx = self.timeline.current_step
+                self.timeline.set_current_step(idx, "verificado")
+                self.data_manager.update_step_status(
+                    self.current_project_id,
+                    "EXEVA",
+                    step_index=idx,
+                    step_status="verificado",
+                    global_status="verificado",
+                )
 
     def _set_results_table_row_count(self, doc_data: dict):
         """Helper opcional para refrescar solo los contadores en la tabla sin recargar todo."""
