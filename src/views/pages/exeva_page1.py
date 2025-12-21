@@ -264,6 +264,10 @@ class Exeva1Page(QWidget):
         if not self.current_project_id:
             return
         self.step2_requested.emit(self.current_project_id)
+        if self.receivers(self.step2_requested) == 0:
+            main_window = self.window()
+            if hasattr(main_window, "show_exeva_page2"):
+                main_window.show_exeva_page2(self.current_project_id)
 
     # --- SLOTS ASYNC ---
 
