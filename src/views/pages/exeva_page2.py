@@ -89,7 +89,7 @@ class Exeva2Page(QWidget):
             "Volver a Paso 1", object_name="BtnActionFolder"
         )
         self.btn_unzip_index = self.command_bar.add_button(
-            "Descomprimir e indexar", object_name="BtnActionSecondary"
+            "Descomprimir e indexar", object_name="BtnActionPrimary"
         )
         self.btn_continue_step3 = self.command_bar.add_right_button(
             "Continuar a paso 3", object_name="BtnActionPrimary"
