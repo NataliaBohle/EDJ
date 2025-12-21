@@ -31,17 +31,27 @@ def _save_payload(idp: str, payload: dict) -> Path:
     return path
 
 
-def _assign_n_to_tree(node: dict) -> None:
-    if "ruta" in node and "n" not in node:
-        node["n"] = "0001"
+def _assign_n_to_tree(node: dict | list) -> None:
+    if isinstance(node, dict):
+        if "ruta" in node:
+            node.setdefault("n", "0001")
 
-    contenido = node.get("contenido")
-    if not isinstance(contenido, list):
+        contenido = node.get("contenido")
+        if isinstance(contenido, list):
+            for idx, item in enumerate(contenido, 1):
+                if isinstance(item, dict):
+                    item["n"] = f"{idx:04d}"
+                _assign_n_to_tree(item)
+
+        for key, value in node.items():
+            if key == "contenido":
+                continue
+            if isinstance(value, (dict, list)):
+                _assign_n_to_tree(value)
         return
 
-    for idx, item in enumerate(contenido, 1):
-        if isinstance(item, dict):
-            item.setdefault("n", f"{idx:04d}")
+    if isinstance(node, list):
+        for item in node:
             _assign_n_to_tree(item)
 
 
