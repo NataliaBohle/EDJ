@@ -127,6 +127,7 @@ class PageOrganizer(QDialog):
         self._thumb_w_min = 260
         self._thumb_w_max = 600
         self._thumb_pad = 12
+        self._page_ratio = 1.35
         self._thumb_step = 60
 
         self.btn_zoom_out = QPushButton("−")
@@ -180,7 +181,7 @@ class PageOrganizer(QDialog):
 
     def _apply_thumb_sizes(self) -> None:
         w = int(self._thumb_w)
-        h = int(w * 1.35)
+        h = int(w * self._page_ratio)
 
         # tamaño del icono (imagen)
         self.list.setIconSize(QSize(w, h))
@@ -236,6 +237,13 @@ class PageOrganizer(QDialog):
         self._rotations.clear()
         self.saved = False
 
+        ps = self.doc.pagePointSize(0)
+        if not ps.isEmpty() and ps.width() > 0 and ps.height() > 0:
+            self._page_ratio = float(ps.height()) / float(ps.width())
+        else:
+            self._page_ratio = 1.35
+
+        self._apply_thumb_sizes()
         self._build_items()
         self._set_status()
 
@@ -327,10 +335,10 @@ class PageOrganizer(QDialog):
             t.rotate(rot_n)
             img = img.transformed(t, Qt.TransformationMode.SmoothTransformation)
 
-        # 2) Escalar para llenar el área de contenido (manteniendo aspecto)
+        # 2) Escalar para encajar dentro del área de contenido (manteniendo aspecto)
         scaled = img.scaled(
             QSize(content_w, content_h),
-            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
 
@@ -339,8 +347,8 @@ class PageOrganizer(QDialog):
         out.fill(0xFFFFFFFF)
 
         p = QPainter(out)
-        x = self._thumb_pad + (content_w - scaled.width()) // 2
-        y = self._thumb_pad + (content_h - scaled.height()) // 2
+        x = self._thumb_pad + max(0, (content_w - scaled.width()) // 2)
+        y = self._thumb_pad + max(0, (content_h - scaled.height()) // 2)
         p.drawImage(x, y, scaled)
 
         # 4) Borde sutil alrededor del contenido
