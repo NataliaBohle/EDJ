@@ -17,6 +17,7 @@ from src.views.components.results_table import EditableTableCard
 from src.views.components.mini_status import MiniStatusBar
 from src.views.components.pdf_viewer import PdfViewer
 from src.views.components.links_review import LinksReviewDialog
+from src.models.project_data_manager import ProjectDataManager
 
 
 class Exeva2Page(QWidget):
@@ -27,6 +28,8 @@ class Exeva2Page(QWidget):
         self.setObjectName("Exeva2Page")
         self.current_project_id = None
         self.documentos = []
+        self.data_manager = ProjectDataManager(self)
+        self.data_manager.log_requested.connect(self.log_requested.emit)
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -92,6 +95,19 @@ class Exeva2Page(QWidget):
 
         self.scroll.setWidget(self.content_widget)
         layout.addWidget(self.scroll)
+
+    def load_project(self, project_id: str) -> None:
+        self.current_project_id = project_id
+        exeva_payload = self.data_manager.load_exeva_data(project_id)
+        documentos = exeva_payload.get("EXEVA", {}).get("documentos", [])
+        self.documentos = documentos
+        if documentos:
+            self.lbl_placeholder.setText(
+                f"Resultados EXEVA Paso 2: {len(documentos)} documentos detectados."
+            )
+        else:
+            self.lbl_placeholder.setText("No hay documentos EXEVA disponibles para revisar.")
+        self.set_documentos(documentos)
 
     def set_documentos(self, documentos: list[dict]) -> None:
         self.documentos = documentos
