@@ -59,7 +59,7 @@ class LinksReviewDialog(QDialog):
         # Tabla
         self.table = QTableWidget()
         self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(["Título / Info", "URL", "Origen", "Estado", "Acción 1", "Acción 2"])
+        self.table.setHorizontalHeaderLabels(["Título / Info", "URL", "Origen", "Estado", "Eliminar", "Excluir por siempre"])
         self.table.setAlternatingRowColors(True)
         self.table.setStyleSheet("QTableWidget { background-color: #fff; }")
 
