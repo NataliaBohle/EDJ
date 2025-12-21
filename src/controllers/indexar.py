@@ -151,6 +151,12 @@ class IndexarController(QObject):
         self.worker.finished_signal.connect(self.index_finished.emit)
         self.worker.finished_signal.connect(self.thread.quit)
         self.worker.finished_signal.connect(self.worker.deleteLater)
-        self.thread.finished.connect(self.thread.deleteLater)
+        self.thread.finished.connect(self._cleanup_thread)
 
         self.thread.start()
+
+    def _cleanup_thread(self) -> None:
+        if self.thread:
+            self.thread.deleteLater()
+        self.thread = None
+        self.worker = None
