@@ -133,8 +133,9 @@ class LinksReviewDialog(QDialog):
             has_ruta = link.get("ruta")
 
             w_status = QWidget()
-            l_status = QHBoxLayout(w_status)
+            l_status = QVBoxLayout(w_status)
             l_status.setContentsMargins(4, 2, 4, 2)
+            l_status.setSpacing(4)
 
             status_text = "Por Descargar"
             status_color = QColor("gray")
@@ -162,7 +163,7 @@ class LinksReviewDialog(QDialog):
                 btn_retry.setStyleSheet(
                     "border: 1px solid #f59e0b; border-radius: 4px; background: #fef3c7; color: #b45309;")
                 btn_retry.clicked.connect(lambda _, idx=i: self._retry_link(idx))
-                l_status.addWidget(btn_retry)
+                l_status.addWidget(btn_retry, alignment=Qt.AlignmentFlag.AlignCenter)
             self.table.setCellWidget(i, 3, w_status)
 
             # 4. Acción 1 (Ver archivo)
@@ -264,7 +265,7 @@ class LinksReviewDialog(QDialog):
         ruta_text = str(ruta).replace("/", os.sep).replace("\\", os.sep)
         if os.path.isabs(ruta_text):
             return str(Path(ruta_text).resolve())
-        base = Path(os.getcwd()) / "Ebook" / str(self.idp)
+        base = Path(os.getcwd()) / "Ebook" / str(self.idp) / "EXEVA"
         return str((base / ruta_text).resolve())
 
     def _open_link_file(self, index):
