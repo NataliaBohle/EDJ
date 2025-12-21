@@ -1,6 +1,5 @@
 from PyQt6.QtCore import Qt, pyqtSignal
 from functools import partial
-from urllib.parse import urlparse
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QLabel, QHBoxLayout,
@@ -156,7 +155,6 @@ class Exeva1Page(QWidget):
                 ("formato", "Formato"),
                 ("anexos_detectados", "Anexos"),
                 ("vinculados_detectados", "Vinculados"),
-                ("comprimidos", "Comprimidos"),
                 ("ver_anexos", "Ver anexos"),
                 ("ver_doc", "Ver doc"),
                 ("estado_doc", "Estado"),
@@ -175,7 +173,6 @@ class Exeva1Page(QWidget):
             "formato",
             "anexos_detectados",
             "vinculados_detectados",
-            "comprimidos",
             "ver_anexos",
             "ver_doc",
             "estado_doc",
@@ -344,7 +341,6 @@ class Exeva1Page(QWidget):
                 "formato": doc.get("formato", ""),
                 "anexos_detectados": str(len(doc.get("anexos_detectados") or [])),
                 "vinculados_detectados": str(len(doc.get("vinculados_detectados") or [])),
-                "comprimidos": str(self._count_compressed_links(doc)),
                 "ver_anexos": "",
                 "ver_doc": "",
                 "estado_doc": "",
@@ -445,7 +441,7 @@ class Exeva1Page(QWidget):
         table = self.results_table.table
 
         # Buscar índices de columnas dinámicamente
-        col_n, col_anex, col_vinc, col_comp = -1, -1, -1, -1
+        col_n, col_anex, col_vinc = -1, -1, -1
         for c in range(table.columnCount()):
             h = table.horizontalHeaderItem(c).text()
             if h == "N° Documento":
@@ -454,8 +450,6 @@ class Exeva1Page(QWidget):
                 col_anex = c
             elif h == "Vinculados":
                 col_vinc = c
-            elif h == "Comprimidos":
-                col_comp = c
 
         if col_n == -1: return
 
@@ -466,14 +460,11 @@ class Exeva1Page(QWidget):
                 # Encontramos la fila, actualizamos los contadores
                 n_a = len(doc_data.get("anexos_detectados", []))
                 n_v = len(doc_data.get("vinculados_detectados", []))
-                n_c = self._count_compressed_links(doc_data)
 
                 if col_anex != -1:
                     table.item(r, col_anex).setText(str(n_a))
                 if col_vinc != -1:
                     table.item(r, col_vinc).setText(str(n_v))
-                if col_comp != -1:
-                    table.item(r, col_comp).setText(str(n_c))
                 self._refresh_row_status(doc_data, row_index=r)
                 return
 
@@ -541,51 +532,6 @@ class Exeva1Page(QWidget):
             if item.get("error"):
                 return True
         return False
-
-    def _count_compressed_links(self, doc_data: dict) -> int:
-        items = (doc_data.get("anexos_detectados") or []) + (doc_data.get("vinculados_detectados") or [])
-        return sum(1 for item in items if self._is_compressed_item(item))
-
-    @staticmethod
-    def _compressed_extensions() -> tuple[str, ...]:
-        return (
-            ".zip",
-            ".rar",
-            ".7z",
-            ".tar",
-            ".gz",
-            ".tgz",
-            ".bz2",
-            ".xz",
-            ".zst",
-            ".tar.gz",
-            ".tar.bz2",
-            ".tar.xz",
-            ".tar.zst",
-        )
-
-    def _is_compressed_item(self, item: object) -> bool:
-        if isinstance(item, dict):
-            candidates = []
-            url = str(item.get("url") or "")
-            if url:
-                parsed = urlparse(url)
-                candidates.append(parsed.path or url)
-            candidates.extend(
-                str(item.get(key) or "")
-                for key in ("titulo", "info_extra")
-            )
-            return any(self._has_compressed_extension(value) for value in candidates)
-        return self._has_compressed_extension(str(item))
-
-    def _has_compressed_extension(self, value: str) -> bool:
-        if not value:
-            return False
-        cleaned = value.lower().strip()
-        for delimiter in ("?", "#"):
-            if delimiter in cleaned:
-                cleaned = cleaned.split(delimiter, 1)[0]
-        return any(cleaned.endswith(ext) for ext in self._compressed_extensions())
 
     def _on_row_status_changed(self, doc_data: dict, widget: MiniStatusBar, status: str) -> None:
         if self._doc_has_error_links(doc_data):
