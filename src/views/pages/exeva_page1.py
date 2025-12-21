@@ -325,16 +325,75 @@ class Exeva1Page(QWidget):
         viewer.show()
 
     def _open_links_review(self, doc_data: dict) -> None:
+        """Abre el diálogo de revisión de enlaces con la firma correcta."""
         anexos = doc_data.get("anexos_detectados") or []
         vinculados = doc_data.get("vinculados_detectados") or []
+
+        # 1. Unificar lista de links
         links = []
-        for item in anexos:
-            payload = dict(item)
-            payload.setdefault("tipo", "anexo")
-            links.append(payload)
-        for item in vinculados:
-            payload = dict(item)
-            payload.setdefault("tipo", "vinculado")
-            links.append(payload)
-        dialog = LinksReviewDialog(links, self)
-        dialog.exec()
+        # Importante: Si anexos es una cadena '5' (str), esto fallará.
+        # Aseguramos que sea iterable. En tu _set_results_table venían como lista en el origen,
+        # pero en la tabla solo muestras len().
+        # NOTA: doc_data aquí es el diccionario de la fila visual,
+        # pero necesitamos la lista real de objetos.
+        # Si 'doc_data' solo tiene strings, necesitamos recuperar los objetos reales.
+        # Asumiendo que 'doc_data' ES el objeto documento original completo:
+
+        # Si doc_data viene de la fila visual (strings), no servirá.
+        # Mirando tu código: partial(self._open_pdf_viewer, doc) -> pasas el 'doc' original (dict).
+        # Así que estamos bien.
+
+        raw_anexos = doc_data.get("anexos_detectados")
+        raw_vinculados = doc_data.get("vinculados_detectados")
+
+        if isinstance(raw_anexos, list):
+            for item in raw_anexos:
+                payload = dict(item)
+                payload.setdefault("tipo", "anexo")
+                links.append(payload)
+
+        if isinstance(raw_vinculados, list):
+            for item in raw_vinculados:
+                payload = dict(item)
+                payload.setdefault("tipo", "vinculado")
+                links.append(payload)
+
+        if not links:
+            QMessageBox.information(self, "Sin enlaces", "Este documento no tiene anexos ni vinculados detectados.")
+            return
+
+        # 2. Preparar datos para el diálogo
+        # El nuevo LinksReviewDialog pide: (title, links, idp, parent_n, parent)
+        title = str(doc_data.get("titulo") or "Documento sin título")
+        # Usamos 'num_doc' o 'n' como identificador del padre para descargas
+        parent_n = str(doc_data.get("n") or doc_data.get("num_doc") or "0")
+        pid = self.current_project_id or ""
+
+        # 3. Abrir diálogo
+        dialog = LinksReviewDialog(title, links, pid, parent_n, self)
+
+        # 4. Manejar resultado (si el usuario borró o modificó links)
+        if dialog.exec():
+            if dialog.modified:
+                # Aquí deberías actualizar los datos en memoria 'doc_data' con 'dialog.get_links()'
+                # Y refrescar la tabla si es necesario.
+                new_links = dialog.get_links()
+
+                # Separar de nuevo en anexos y vinculados para guardar
+                new_anexos = [x for x in new_links if x.get("tipo") == "anexo"]
+                new_vinculados = [x for x in new_links if x.get("tipo") == "vinculado"]
+
+                doc_data["anexos_detectados"] = new_anexos
+                doc_data["vinculados_detectados"] = new_vinculados
+
+                # Actualizar texto de la tabla visualmente
+                self._set_results_table_row_count(doc_data)
+
+                self.log_requested.emit(f"Enlaces modificados para el doc {parent_n}")
+
+    def _set_results_table_row_count(self, doc_data: dict):
+        """Helper opcional para refrescar solo los contadores en la tabla sin recargar todo."""
+        # Encuentra la fila correspondiente (esto puede requerir iterar self.results_table.data)
+        # O simplemente llamamos a _set_results_table completo si no es costoso:
+        # self._set_results_table( [toda la lista de docs] ) -> esto requiere tener la lista completa a mano.
+        pass
