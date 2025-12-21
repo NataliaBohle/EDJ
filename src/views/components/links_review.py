@@ -122,19 +122,25 @@ class LinksReviewDialog(QDialog):
             l_status = QHBoxLayout(w_status)
             l_status.setContentsMargins(4, 2, 4, 2)
 
-            item_st = QTableWidgetItem()
+            status_text = "Por Descargar"
+            status_color = QColor("gray")
+            status_bg = None
             if has_error:
-                item_st.setText("Error")
-                item_st.setForeground(QColor("red"))
-                item_st.setBackground(QColor("#ffebee"))
+                status_text = "Error"
+                status_color = QColor("red")
+                status_bg = QColor("#ffebee")
             elif has_ruta:
-                item_st.setText("Descargado")
-                item_st.setForeground(QColor("green"))
-            else:
-                item_st.setText("Por Descargar")
-                item_st.setForeground(QColor("gray"))
-            item_st.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.table.setItem(i, 3, item_st)
+                status_text = "Descargado"
+                status_color = QColor("green")
+
+            status_label = QLabel(status_text)
+            status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            status_label.setStyleSheet(f"color: {status_color.name()};")
+            if status_bg:
+                status_label.setStyleSheet(
+                    f"color: {status_color.name()}; background-color: {status_bg.name()};"
+                )
+            l_status.addWidget(status_label)
 
             if has_ruta or has_error:
                 btn_retry = QPushButton("Reintentar")
@@ -143,7 +149,7 @@ class LinksReviewDialog(QDialog):
                     "border: 1px solid #f59e0b; border-radius: 4px; background: #fef3c7; color: #b45309;")
                 btn_retry.clicked.connect(lambda _, idx=i: self._retry_link(idx))
                 l_status.addWidget(btn_retry)
-                self.table.setCellWidget(i, 3, w_status)
+            self.table.setCellWidget(i, 3, w_status)
 
             # 4. Acción 1 (Borrar)
             w_acc1 = QWidget()
