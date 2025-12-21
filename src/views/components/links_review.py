@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
+import os
+
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QHBoxLayout, QHeaderView, QMessageBox, QLabel, QWidget
 )
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QDesktopServices
+from PyQt6.QtCore import QUrl
 
 
 # Worker interno para el reintento sin congelar la UI
@@ -58,8 +62,16 @@ class LinksReviewDialog(QDialog):
 
         # Tabla
         self.table = QTableWidget()
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(["Título / Info", "URL", "Origen", "Estado", "Eliminar", "Excluir por siempre"])
+        self.table.setColumnCount(7)
+        self.table.setHorizontalHeaderLabels([
+            "Título / Info",
+            "URL",
+            "Origen",
+            "Estado",
+            "Ver archivo",
+            "Eliminar",
+            "Excluir por siempre",
+        ])
         self.table.setAlternatingRowColors(True)
         self.table.setStyleSheet("QTableWidget { background-color: #fff; }")
 
@@ -74,6 +86,8 @@ class LinksReviewDialog(QDialog):
         self.table.setColumnWidth(4, 110)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed);
         self.table.setColumnWidth(5, 110)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed);
+        self.table.setColumnWidth(6, 140)
 
         layout.addWidget(self.table)
 
@@ -151,7 +165,20 @@ class LinksReviewDialog(QDialog):
                 l_status.addWidget(btn_retry)
             self.table.setCellWidget(i, 3, w_status)
 
-            # 4. Acción 1 (Borrar)
+            # 4. Acción 1 (Ver archivo)
+            w_view = QWidget()
+            l_view = QHBoxLayout(w_view)
+            l_view.setContentsMargins(4, 2, 4, 2)
+
+            btn_view = QPushButton("Ver")
+            btn_view.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_view.setStyleSheet("border: 1px solid #93c5fd; border-radius: 4px; background: #dbeafe; color: #1d4ed8;")
+            btn_view.clicked.connect(lambda _, idx=i: self._open_link_file(idx))
+            btn_view.setEnabled(bool(link.get("ruta")))
+            l_view.addWidget(btn_view)
+            self.table.setCellWidget(i, 4, w_view)
+
+            # 5. Acción 2 (Borrar)
             w_acc1 = QWidget()
             l_acc1 = QHBoxLayout(w_acc1)
             l_acc1.setContentsMargins(4, 2, 4, 2)
@@ -162,9 +189,9 @@ class LinksReviewDialog(QDialog):
             btn_del.clicked.connect(lambda _, idx=i: self._delete_link(idx))
             l_acc1.addWidget(btn_del)
 
-            self.table.setCellWidget(i, 4, w_acc1)
+            self.table.setCellWidget(i, 5, w_acc1)
 
-            # 5. Acción 2 (Excluir)
+            # 6. Acción 3 (Excluir)
             btn_ban = QPushButton("Excluir")
             btn_ban.setToolTip("Excluir URL permanentemente")
             btn_ban.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -175,7 +202,7 @@ class LinksReviewDialog(QDialog):
             l_ban = QHBoxLayout(w_ban);
             l_ban.setContentsMargins(4, 2, 4, 2)
             l_ban.addWidget(btn_ban)
-            self.table.setCellWidget(i, 5, w_ban)
+            self.table.setCellWidget(i, 6, w_ban)
 
         self.table.resizeRowsToContents()
 
@@ -232,6 +259,47 @@ class LinksReviewDialog(QDialog):
             QMessageBox.warning(self, "Error", "La descarga falló nuevamente.")
 
         self._populate_table()  # Refrescar estado
+
+    def _resolve_link_path(self, ruta: str) -> str:
+        ruta_text = str(ruta).replace("/", os.sep).replace("\\", os.sep)
+        if os.path.isabs(ruta_text):
+            return str(Path(ruta_text).resolve())
+        base = Path(os.getcwd()) / "Ebook" / str(self.idp)
+        return str((base / ruta_text).resolve())
+
+    def _open_link_file(self, index):
+        link = self.links[index]
+        ruta = link.get("ruta")
+        if not ruta:
+            QMessageBox.information(self, "Sin archivo", "Este enlace no tiene un archivo descargado.")
+            return
+
+        file_path = Path(self._resolve_link_path(ruta))
+        if not file_path.exists():
+            QMessageBox.warning(self, "Archivo no encontrado", f"No se encontró el archivo:\n{file_path}")
+            return
+
+        ext = file_path.suffix.lower()
+        compressed_exts = {".zip", ".rar", ".7z"}
+        if ext == ".pdf":
+            try:
+                from src.views.components.pdf_viewer import PdfViewer
+                viewer = PdfViewer(
+                    {"ruta": str(file_path), "titulo": link.get("titulo") or file_path.name},
+                    self,
+                    self.idp,
+                )
+                viewer.exec()
+            except Exception as exc:
+                QMessageBox.warning(self, "Error", f"No se pudo abrir el PDF:\n{exc}")
+            return
+
+        if ext in compressed_exts:
+            folder = file_path.parent
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+            return
+
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(file_path)))
 
     def get_links(self):
         return self.links
