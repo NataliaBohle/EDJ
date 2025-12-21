@@ -104,8 +104,9 @@ def download_attachments_files(idp: str, log: Callable[[str], None] | None = Non
         return {}
 
     documentos = exeva.get("documentos") or []
-    detect_dir = Path(__file__).resolve().parent / "Detect"
-    out_base = detect_dir / f"Archivos_{idp}" / "Anexos"
+    exeva_dir = Path(os.getcwd()) / "Ebook" / idp / "EXEVA"
+    detect_dir = exeva_dir
+    out_base = exeva_dir / "files"
 
     tasks = []
 
@@ -163,8 +164,9 @@ def download_attachments_files(idp: str, log: Callable[[str], None] | None = Non
 def download_single_attachment(idp: str, parent_n: str, link_obj: dict,
                                log: Callable[[str], None] | None = None) -> bool:
     """Descarga un único anexo (para el botón Reintentar de la UI)."""
-    detect_dir = Path(__file__).resolve().parent / "Detect"
-    out_base = detect_dir / f"Archivos_{idp}" / "Anexos"
+    exeva_dir = Path(os.getcwd()) / "Ebook" / idp / "EXEVA"
+    detect_dir = exeva_dir
+    out_base = exeva_dir / "files"
 
     # Forzar descarga borrando ruta previa si existe
     if "ruta" in link_obj:
