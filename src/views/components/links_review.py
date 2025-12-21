@@ -247,7 +247,7 @@ class LinksReviewDialog(QDialog):
 
         self.table.setCellWidget(row, 3, w_status)
 
-    # --- Resto de métodos lógicos (sin cambios visuales)   ---
+    # --- Resto de métodos lógicos (sin cambios visuales) ---
     def _delete_link(self, index):
         del self.links[index]
         self.modified = True
