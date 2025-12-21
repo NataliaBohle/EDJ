@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import zipfile
 from pathlib import Path
@@ -177,7 +178,8 @@ def _clear_unpack_error(item: dict) -> None:
 
 
 def _process_item(item: dict, project_root: Path, exeva_root: Path,
-                  log: Callable[[str], None] | None, failures: list[dict]) -> bool:
+                  log: Callable[[str], None] | None, failures: list[dict],
+                  force_extract: bool = False) -> bool:
     ruta = item.get("ruta")
     archive_path = _resolve_file_path(project_root, exeva_root, ruta)
     if not archive_path:
@@ -197,6 +199,12 @@ def _process_item(item: dict, project_root: Path, exeva_root: Path,
     failures.extend(current_failures)
 
     out_dir = archive_path.with_suffix("")
+    if force_extract and out_dir.exists():
+        try:
+            shutil.rmtree(out_dir)
+        except Exception as exc:
+            _mark_unpack_error(item, f"No se pudo limpiar carpeta: {exc}")
+            return False
     if out_dir.exists() and out_dir.is_dir():
         base_dir = _base_for_item(project_root, exeva_root, ruta)
         item["descomprimidos"] = _index_tree(out_dir, base_dir)
@@ -294,7 +302,7 @@ def unpack_exeva_item(idp: str, ruta: str, log: Callable[[str], None] | None = N
         if not isinstance(doc, dict):
             continue
         if _matches(doc):
-            if _process_item(doc, project_root, exeva_root, log, failures):
+            if _process_item(doc, project_root, exeva_root, log, failures, force_extract=True):
                 changed = True
         for key in ("anexos_detectados", "vinculados_detectados"):
             links = doc.get(key) or []
@@ -304,7 +312,7 @@ def unpack_exeva_item(idp: str, ruta: str, log: Callable[[str], None] | None = N
                 if not isinstance(link, dict):
                     continue
                 if _matches(link):
-                    if _process_item(link, project_root, exeva_root, log, failures):
+                    if _process_item(link, project_root, exeva_root, log, failures, force_extract=True):
                         changed = True
 
     if changed:
