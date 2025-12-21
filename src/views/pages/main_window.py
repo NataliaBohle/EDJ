@@ -105,7 +105,7 @@ class MainWindow(QMainWindow):
         self.exeva_page.log_requested.connect(self.log_screen.add_log)
         self.exeva_page2.log_requested.connect(self.log_screen.add_log)
         self.exeva_page.step2_requested.connect(self.show_exeva_page2)
-        self.exeva_page2.back_requested.connect(self.show_exeva_page)
+        self.exeva_page2.log_requested.connect(self.show_exeva_page)
 
 
         # --- 5. TAMAÑOS INICIALES ---
