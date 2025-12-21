@@ -336,10 +336,13 @@ class Exeva1Page(QWidget):
             )
             if anexos_col is not None:
                 for row_idx, doc in enumerate(documentos):
-                    button = QPushButton("Ver anexos", self.results_table.table)
-                    button.setObjectName("BtnActionSecondary")
-                    button.clicked.connect(partial(self._open_links_review, doc))
-                    self.results_table.table.setCellWidget(row_idx, anexos_col, button)
+                    anexos = doc.get("anexos_detectados") or []
+                    vinculados = doc.get("vinculados_detectados") or []
+                    if anexos or vinculados:
+                        button = QPushButton("Ver anexos", self.results_table.table)
+                        button.setObjectName("BtnActionSecondary")
+                        button.clicked.connect(partial(self._open_links_review, doc))
+                        self.results_table.table.setCellWidget(row_idx, anexos_col, button)
             self.results_table.table.resizeColumnsToContents()
 
     def _open_pdf_viewer(self, doc_data: dict) -> None:
