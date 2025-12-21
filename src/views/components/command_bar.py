@@ -13,17 +13,29 @@ class CommandBar(QFrame):
         layout.setContentsMargins(20, 10, 20, 10)
         layout.setSpacing(15)
 
-        # 1. Empujamos el contenido desde la izquierda
+        # 1. Layout para botones a la izquierda
+        self.left_layout = QHBoxLayout()
+        self.left_layout.setContentsMargins(0, 0, 0, 0)
+        self.left_layout.setSpacing(15)
+        layout.addLayout(self.left_layout)
+
+        # 2. Empujamos el contenido hacia el centro
         layout.addStretch()
 
-        # 2. Creamos un layout secundario para los botones
+        # 3. Layout central para los botones principales
         self.button_layout = QHBoxLayout()
         self.button_layout.setContentsMargins(0, 0, 0, 0)
         self.button_layout.setSpacing(15)
         layout.addLayout(self.button_layout)
 
-        # 3. Empujamos el contenido desde la derecha
+        # 4. Empujamos el contenido hacia la derecha
         layout.addStretch()
+
+        # 5. Layout para botones a la derecha
+        self.right_layout = QHBoxLayout()
+        self.right_layout.setContentsMargins(0, 0, 0, 0)
+        self.right_layout.setSpacing(15)
+        layout.addLayout(self.right_layout)
 
     def add_button(self, text, icon=None, object_name="BtnCommand"):
         btn = QPushButton(text)
@@ -34,4 +46,22 @@ class CommandBar(QFrame):
 
         # Agregamos al layout secundario de botones
         self.button_layout.addWidget(btn)
+        return btn
+
+    def add_left_button(self, text, icon=None, object_name="BtnCommand"):
+        btn = QPushButton(text)
+        btn.setObjectName(object_name)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        if icon:
+            btn.setIcon(icon)
+        self.left_layout.addWidget(btn)
+        return btn
+
+    def add_right_button(self, text, icon=None, object_name="BtnCommand"):
+        btn = QPushButton(text)
+        btn.setObjectName(object_name)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        if icon:
+            btn.setIcon(icon)
+        self.right_layout.addWidget(btn)
         return btn
