@@ -123,9 +123,9 @@ class PageOrganizer(QDialog):
         self.btn_save.clicked.connect(self._save)
         self.btn_close.clicked.connect(self.close)
 
-        self._thumb_w = 300  # antes 240: demasiado chico para texto en tu PDF
-        self._thumb_w_min = 220
-        self._thumb_w_max = 520
+        self._thumb_w = 360  # miniaturas iniciales más legibles
+        self._thumb_w_min = 260
+        self._thumb_w_max = 600
         self._thumb_step = 60
 
         self.btn_zoom_out = QPushButton("−")
@@ -287,15 +287,17 @@ class PageOrganizer(QDialog):
         # Proporción base de página (sin rotación)
         if ps.isEmpty() or ps.width() <= 0 or ps.height() <= 0:
             page_ratio = 1.35
-            is_landscape_base = False
         else:
             page_ratio = float(ps.height()) / float(ps.width())
-            is_landscape_base = ps.width() > ps.height()
 
-        # Render en una resolución moderada (no gigante)
-        # Usa base del tamaño final para que no reviente memoria y no salga negro.
-        render_w = max(1200, out_w * 6)
-        render_h = max(1600, out_h * 6)
+        # Render en una resolución moderada conservando proporción
+        max_side = max(1200, max(out_w, out_h) * 6)
+        if page_ratio >= 1:
+            render_w = max_side
+            render_h = int(max_side * page_ratio)
+        else:
+            render_h = max_side
+            render_w = int(max_side / page_ratio)
 
         img = self.doc.render(page_idx, QSize(render_w, render_h))
 
@@ -315,9 +317,6 @@ class PageOrganizer(QDialog):
 
         # Si hay rotación 90/270, cambia orientación visible
         rot_n = _norm_rot(rot)
-        is_landscape = is_landscape_base
-        if rot_n in (90, 270):
-            is_landscape = not is_landscape_base
 
         # 1) Rotar la imagen ANTES de escalar (así no se deforma)
         if rot_n:
@@ -341,17 +340,7 @@ class PageOrganizer(QDialog):
         y = (out_h - scaled.height()) // 2
         p.drawImage(x, y, scaled)
 
-        # 4) Franja negra (sobre el tamaño final)
-        band = 10 # ~6% (visible en miniatura)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(Qt.GlobalColor.black)
-
-        if is_landscape:
-            p.drawRect(0, 0, band, out_h)  # lateral izquierda
-        else:
-            p.drawRect(0, 0, out_w, band)  # vertical -> franja superior
-
-        # 5) Borde sutil
+        # 4) Borde sutil
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.setPen(Qt.GlobalColor.lightGray)
         p.drawRect(0, 0, out_w - 1, out_h - 1)
