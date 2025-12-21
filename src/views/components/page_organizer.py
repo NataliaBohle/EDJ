@@ -19,7 +19,7 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QSize, QTimer
+from PyQt6.QtCore import Qt, QSize, QTimer, QRect
 from PyQt6.QtGui import QPixmap, QImage, QPainter, QTransform, QAction, QIcon
 from PyQt6.QtWidgets import (
     QDialog,
@@ -302,13 +302,18 @@ class PageOrganizer(QDialog):
         # Render en una resolución moderada conservando proporción
         content_w = max(40, out_w - (self._thumb_pad * 2))
         content_h = max(40, out_h - (self._thumb_pad * 2))
-        max_side = max(1200, max(content_w, content_h) * 6)
-        if page_ratio >= 1:
+        render_ratio = page_ratio
+        rot_n = _norm_rot(rot)
+        if rot_n in (90, 270) and render_ratio > 0:
+            render_ratio = 1 / render_ratio
+
+        max_side = max(800, max(content_w, content_h) * 4)
+        if render_ratio >= 1:
             render_w = max_side
-            render_h = int(max_side * page_ratio)
+            render_h = int(max_side * render_ratio)
         else:
             render_h = max_side
-            render_w = int(max_side / page_ratio)
+            render_w = int(max_side / render_ratio)
 
         img = self.doc.render(page_idx, QSize(render_w, render_h))
 
@@ -326,19 +331,16 @@ class PageOrganizer(QDialog):
         # Normaliza formato
         img = img.convertToFormat(QImage.Format.Format_ARGB32)
 
-        # Si hay rotación 90/270, cambia orientación visible
-        rot_n = _norm_rot(rot)
-
         # 1) Rotar la imagen ANTES de escalar (así no se deforma)
         if rot_n:
             t = QTransform()
             t.rotate(rot_n)
             img = img.transformed(t, Qt.TransformationMode.SmoothTransformation)
 
-        # 2) Escalar para encajar dentro del área de contenido (manteniendo aspecto)
+        # 2) Escalar para llenar el área de contenido (manteniendo aspecto)
         scaled = img.scaled(
             QSize(content_w, content_h),
-            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
             Qt.TransformationMode.SmoothTransformation,
         )
 
@@ -347,9 +349,11 @@ class PageOrganizer(QDialog):
         out.fill(0xFFFFFFFF)
 
         p = QPainter(out)
-        x = self._thumb_pad + max(0, (content_w - scaled.width()) // 2)
-        y = self._thumb_pad + max(0, (content_h - scaled.height()) // 2)
-        p.drawImage(x, y, scaled)
+        src_x = max(0, (scaled.width() - content_w) // 2)
+        src_y = max(0, (scaled.height() - content_h) // 2)
+        target = QRect(self._thumb_pad, self._thumb_pad, content_w, content_h)
+        source = QRect(src_x, src_y, content_w, content_h)
+        p.drawImage(target, scaled, source)
 
         # 4) Borde sutil alrededor del contenido
         p.setBrush(Qt.BrushStyle.NoBrush)
