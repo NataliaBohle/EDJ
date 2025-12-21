@@ -1,14 +1,5 @@
 from __future__ import annotations
 
-"""
-Descarga de Anexos y Vinculados detectados (OPTIMIZADO).
-
-Mejoras de rendimiento:
-- Workers reducidos a 4 para evitar saturación de red/disco.
-- Guardado incremental cada 50 ítems (menos I/O de disco).
-- Uso de utilidades centralizadas (utils.py).
-"""
-
 from pathlib import Path
 from typing import Callable
 import concurrent.futures
