@@ -1,12 +1,22 @@
 from PyQt6.QtCore import Qt, pyqtSignal
+from urllib.parse import urlparse
+
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QScrollArea, QLabel, QHBoxLayout, QFrame
+    QWidget,
+    QVBoxLayout,
+    QScrollArea,
+    QLabel,
+    QHBoxLayout,
+    QFrame,
+    QAbstractItemView,
+    QHeaderView,
 )
 
 from src.views.components.chapter import Chapter
 from src.views.components.status_bar import StatusBar
 from src.views.components.command_bar import CommandBar
 from src.views.components.timeline import Timeline
+from src.views.components.results_table import EditableTableCard
 from src.models.project_data_manager import ProjectDataManager
 
 
@@ -20,6 +30,7 @@ class Exeva2Page(QWidget):
         self.setObjectName("Exeva2Page")
         self.current_project_id = None
         self.is_loading = False
+        self.result_cards = []
 
         self._init_controllers()
         self._setup_ui()
@@ -77,11 +88,15 @@ class Exeva2Page(QWidget):
         self.btn_back_step1 = self.command_bar.add_left_button(
             "Volver a Paso 1", object_name="BtnActionFolder"
         )
+        self.btn_unzip_index = self.command_bar.add_button(
+            "Descomprimir e indexar", object_name="BtnActionSecondary"
+        )
         self.btn_continue_step3 = self.command_bar.add_right_button(
             "Continuar a paso 3", object_name="BtnActionPrimary"
         )
 
         self.btn_back_step1.clicked.connect(self._on_back_clicked)
+        self.btn_unzip_index.clicked.connect(self._on_unzip_index_clicked)
         self.btn_continue_step3.clicked.connect(self._on_continue_clicked)
 
         layout.addWidget(self.command_bar)
@@ -123,6 +138,7 @@ class Exeva2Page(QWidget):
             step_status=step_status,
             global_status=global_status,
         )
+        self._load_results_tables()
         self.is_loading = False
 
     def save_status_change(self, new_status: str):
@@ -148,3 +164,151 @@ class Exeva2Page(QWidget):
         if not self.current_project_id:
             return
         self.continue_requested.emit(self.current_project_id)
+
+    def _on_unzip_index_clicked(self):
+        if not self.current_project_id:
+            return
+        self.log_requested.emit("⏳ Descompresión e indexación pendiente de implementación.")
+
+    def _load_results_tables(self) -> None:
+        exeva_payload = self.data_manager.load_exeva_data(self.current_project_id)
+        documentos = exeva_payload.get("EXEVA", {}).get("documentos", [])
+        self._render_compressed_tables(documentos)
+
+    def _render_compressed_tables(self, documentos: list[dict]) -> None:
+        self._clear_result_cards()
+
+        cards_created = 0
+        for doc in documentos:
+            anexos = doc.get("anexos_detectados") or []
+            vinculados = doc.get("vinculados_detectados") or []
+            if not (anexos or vinculados):
+                continue
+
+            compressed_rows = self._build_compressed_rows(anexos + vinculados)
+            if not compressed_rows:
+                continue
+
+            title = self._format_doc_title(doc)
+            card = EditableTableCard(
+                title,
+                columns=[
+                    ("tipo", "Tipo"),
+                    ("archivo", "Archivo"),
+                    ("ruta", "URL / Ruta"),
+                    ("formato", "Formato comprimido"),
+                ],
+                parent=self.content_widget,
+            )
+            card.status_bar.setVisible(False)
+            card.btn_add_row.setVisible(False)
+            card.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+            header = card.table.horizontalHeader()
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            card.set_data(compressed_rows)
+            card.table.resizeColumnsToContents()
+
+            self.content_layout.addWidget(card)
+            self.result_cards.append(card)
+            cards_created += 1
+
+        if cards_created == 0:
+            self.lbl_placeholder.setText(
+                "No se encontraron anexos o vínculos comprimidos para este expediente."
+            )
+            self.lbl_placeholder.setVisible(True)
+        else:
+            self.lbl_placeholder.setVisible(False)
+
+    def _clear_result_cards(self) -> None:
+        for card in self.result_cards:
+            self.content_layout.removeWidget(card)
+            card.setParent(None)
+            card.deleteLater()
+        self.result_cards = []
+
+    def _format_doc_title(self, doc: dict) -> str:
+        n_doc = doc.get("n") or doc.get("num_doc") or "0"
+        titulo = doc.get("titulo") or "Documento"
+        return f"Documento principal {n_doc}: {titulo}"
+
+    def _build_compressed_rows(self, links: list[dict]) -> list[dict]:
+        rows = []
+        for link in links:
+            formato = self._detect_compressed_format(link)
+            if not formato:
+                continue
+            rows.append({
+                "tipo": self._format_link_type(link),
+                "archivo": self._format_link_name(link),
+                "ruta": self._format_link_source(link),
+                "formato": formato,
+            })
+        return rows
+
+    def _format_link_type(self, link: dict) -> str:
+        tipo = (link.get("tipo") or "").lower()
+        if "vinculado" in tipo:
+            return "Vinculado"
+        return "Anexo"
+
+    def _format_link_name(self, link: dict) -> str:
+        titulo = (link.get("titulo") or "").strip()
+        if titulo:
+            return titulo
+        ruta = link.get("ruta") or link.get("url") or ""
+        return ruta.split("/")[-1] if ruta else "Archivo comprimido"
+
+    def _format_link_source(self, link: dict) -> str:
+        return link.get("ruta") or link.get("url") or ""
+
+    def _detect_compressed_format(self, link: dict) -> str | None:
+        candidates = [
+            link.get("ruta"),
+            link.get("url"),
+            link.get("titulo"),
+            link.get("info_extra"),
+        ]
+        for value in candidates:
+            format_label = self._format_from_value(value)
+            if format_label:
+                return format_label
+        return None
+
+    def _format_from_value(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        value_lower = value.lower().strip()
+        if value_lower.startswith("http"):
+            value_lower = urlparse(value_lower).path
+
+        multi_map = {
+            ".tar.gz": "TAR.GZ",
+            ".tar.bz2": "TAR.BZ2",
+            ".tar.xz": "TAR.XZ",
+        }
+        for ext, label in multi_map.items():
+            if value_lower.endswith(ext):
+                return label
+
+        ext = value_lower.rsplit(".", 1)[-1] if "." in value_lower else ""
+        ext = f".{ext}" if ext else ""
+
+        simple_map = {
+            ".zip": "ZIP",
+            ".rar": "RAR",
+            ".7z": "7ZIP",
+            ".tar": "TAR",
+            ".gz": "GZ",
+            ".bz2": "BZ2",
+            ".xz": "XZ",
+            ".tgz": "TAR.GZ",
+        }
+        if ext in simple_map:
+            return simple_map[ext]
+
+        for ext_key, label in simple_map.items():
+            if ext_key in value_lower:
+                return label
+
+        return None
