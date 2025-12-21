@@ -59,11 +59,28 @@ def _assign_n_to_tree(node: dict | list) -> None:
             _assign_n_to_tree(value)
 
 
+def _mark_index_error(item: dict, error: str) -> None:
+    item["error_indexacion"] = True
+    item["errores_indexacion"] = [error]
+
+
+def _clear_index_error(item: dict) -> None:
+    item.pop("error_indexacion", None)
+    item.pop("errores_indexacion", None)
+
+
 def _indexar_item(item: dict) -> bool:
     tree = item.get("descomprimidos")
-    if not isinstance(tree, dict):
+    if tree is None:
         return False
+    if not isinstance(tree, dict):
+        _mark_index_error(item, "No se encontró estructura descomprimida.")
+        return False
+    had_error = bool(item.get("error_indexacion") or item.get("errores_indexacion"))
     _assign_n_to_tree(tree)
+    _clear_index_error(item)
+    if had_error:
+        item["estado_descompresion"] = "verificado"
     return True
 
 

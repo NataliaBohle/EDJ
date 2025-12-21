@@ -200,7 +200,7 @@ class Exeva2Page(QWidget):
     def _on_unpack_finished(self, success: bool, _data: dict) -> None:
         self.btn_download.setEnabled(True)
         if success:
-            self._load_results_tables()
+            self._apply_unpack_results()
             self.log_requested.emit("✅ Descompresión e indexación finalizadas.")
         else:
             self.log_requested.emit("⚠️ No se pudieron descomprimir archivos.")
@@ -212,6 +212,7 @@ class Exeva2Page(QWidget):
     def _on_index_finished(self, success: bool, _data: dict) -> None:
         self.btn_index.setEnabled(True)
         if success:
+            self._apply_index_results()
             self.log_requested.emit("✅ Indexación completada.")
         else:
             self.log_requested.emit("⚠️ No se pudo indexar la información.")
@@ -221,6 +222,39 @@ class Exeva2Page(QWidget):
         self.exeva_payload = exeva_payload or {}
         documentos = exeva_payload.get("EXEVA", {}).get("documentos", [])
         self._render_compressed_tables(documentos)
+        self._update_global_status_from_rows()
+
+    def _apply_unpack_results(self) -> None:
+        exeva_payload = self.data_manager.load_exeva_data(self.current_project_id)
+        self.exeva_payload = exeva_payload or {}
+        documentos = exeva_payload.get("EXEVA", {}).get("documentos", [])
+        links = self._collect_compressed_links(documentos)
+        for link in links:
+            if not self._has_link_error(link):
+                link["estado_descompresion"] = "edicion"
+        self._persist_exeva_payload(documentos)
+        self._render_compressed_tables(documentos)
+        self._update_global_status_from_rows()
+
+    def _apply_index_results(self) -> None:
+        exeva_payload = self.data_manager.load_exeva_data(self.current_project_id)
+        self.exeva_payload = exeva_payload or {}
+        documentos = exeva_payload.get("EXEVA", {}).get("documentos", [])
+        links = self._collect_compressed_links(documentos)
+        for link in links:
+            descomprimidos = link.get("descomprimidos")
+            if not isinstance(descomprimidos, dict):
+                link["error_indexacion"] = True
+                link.setdefault("errores_indexacion", ["Faltan descomprimidos para indexar."])
+                link["estado_descompresion"] = "error"
+                continue
+            if link.get("error_indexacion") or link.get("errores_indexacion"):
+                link.pop("error_indexacion", None)
+                link.pop("errores_indexacion", None)
+                link["estado_descompresion"] = "verificado"
+        self._persist_exeva_payload(documentos)
+        self._render_compressed_tables(documentos)
+        self._update_global_status_from_rows()
 
     def _render_compressed_tables(self, documentos: list[dict]) -> None:
         self._clear_result_cards()
@@ -328,13 +362,16 @@ class Exeva2Page(QWidget):
 
     def _derive_link_status(self, link: dict) -> str:
         manual_status = (link.get("estado_descompresion") or "").strip().lower()
+        if self._has_link_error(link):
+            return "error"
         if manual_status:
             return manual_status
-        if link.get("error_descompresion") or link.get("error"):
-            return "error"
         if link.get("descomprimidos"):
             return "edicion"
         return "detectado"
+
+    def _has_link_error(self, link: dict) -> bool:
+        return bool(link.get("error_descompresion") or link.get("error_indexacion") or link.get("error"))
 
     def _attach_row_status_bars(self, card: EditableTableCard, rows: list[dict]) -> None:
         status_column = None
@@ -388,8 +425,61 @@ class Exeva2Page(QWidget):
 
     def _on_row_status_changed(self, link: dict, status: str) -> None:
         link["estado_descompresion"] = status
+        if status == "verificado":
+            link.pop("error_descompresion", None)
+            link.pop("errores_descompresion", None)
+            link.pop("error_indexacion", None)
+            link.pop("errores_indexacion", None)
         if self.current_project_id and self.exeva_payload:
             self.data_manager.save_exeva_data(self.current_project_id, self.exeva_payload)
+        self._update_global_status_from_rows()
+
+    def _collect_compressed_links(self, documentos: list[dict]) -> list[dict]:
+        links = []
+        for doc in documentos:
+            if not isinstance(doc, dict):
+                continue
+            anexos = doc.get("anexos_detectados") or []
+            vinculados = doc.get("vinculados_detectados") or []
+            for link in anexos + vinculados:
+                if not isinstance(link, dict):
+                    continue
+                if self._detect_compressed_format(link):
+                    links.append(link)
+        return links
+
+    def _persist_exeva_payload(self, documentos: list[dict]) -> None:
+        payload = dict(self.exeva_payload or {})
+        payload.setdefault("EXEVA", {})
+        payload["EXEVA"]["documentos"] = documentos
+        self.exeva_payload = payload
+        if self.current_project_id:
+            self.data_manager.save_exeva_data(self.current_project_id, payload)
+
+    def _update_global_status_from_rows(self) -> None:
+        documentos = self.exeva_payload.get("EXEVA", {}).get("documentos", [])
+        links = self._collect_compressed_links(documentos)
+        if not links or not self.current_project_id:
+            return
+        statuses = [self._derive_link_status(link) for link in links]
+        if any(status == "error" for status in statuses):
+            global_status = "error"
+        elif all(status == "verificado" for status in statuses):
+            global_status = "verificado"
+        elif all(status == "detectado" for status in statuses):
+            global_status = "detectado"
+        else:
+            global_status = "edicion"
+        idx = self.timeline.current_step
+        self.status_bar.set_status(global_status)
+        self.timeline.set_current_step(idx, global_status)
+        self.data_manager.update_step_status(
+            self.current_project_id,
+            "EXEVA",
+            step_index=idx,
+            step_status=global_status,
+            global_status=global_status,
+        )
 
     def _format_from_value(self, value: str | None) -> str | None:
         if not value:
