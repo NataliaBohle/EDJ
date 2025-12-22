@@ -517,3 +517,11 @@ QPushButton#FormatViewActionButton[variant="danger"] {
 QPushButton#FormatViewActionButton[variant="danger"]:hover {
     background-color: #ffcdd2;
 }
+
+QPushButton#FormatViewActionButton[variant="primary"]:disabled,
+QPushButton#FormatViewActionButton[variant="success"]:disabled,
+QPushButton#FormatViewActionButton[variant="danger"]:disabled {
+    background-color: #f0f0f0;
+    color: #aaa;
+    border: 1px solid #eee;
+}
