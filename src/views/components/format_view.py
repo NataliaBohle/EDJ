@@ -35,6 +35,7 @@ class FormatViewDialog(QDialog):
         "TXT",
         "GEO",
         "WEB",
+        "IMG",
         "Comprimidos",
         "Carpetas",
         "Otros",
@@ -632,8 +633,10 @@ class FormatViewDialog(QDialog):
             return "PPT"
         if fmt_lower in {"txt", "md", "log"}:
             return "TXT"
-        if fmt_lower in {"shp", "shx", "dbf", "prj", "kml", "kmz", "geojson", "gml", "gpkg", "tif", "tiff"}:
+        if fmt_lower in {"shp", "shx", "dbf", "prj", "kml", "kmz", "geojson", "gml", "gpkg"}:
             return "GEO"
+        if fmt_lower in {"jpg", "jpeg", "png", "gif", "tiff", "tif", "bmp"}:
+            return "IMG"
         if fmt_lower in {"html", "php", "bin"}:
             return "WEB"
         if fmt_lower in {"zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz", "tar.gz", "tar.bz2", "tar.xz"}:
