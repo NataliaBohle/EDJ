@@ -210,10 +210,6 @@ class FormatViewDialog(QDialog):
             status_widget.set_status(self._default_status(item, fmt))
             self.files_table.setCellWidget(row_idx, 6, status_widget)
 
-            # Botón Excluir
-            is_excluded = item.get("excluir") == "S"
-            self._add_action_btn(row_idx, 7, "Excluir", self._exclude_file, is_red=is_excluded)
-
             # Observaciones
             default_observation = self._default_observation(item, fmt)
             existing_observation = item.get("observacion")
@@ -232,6 +228,10 @@ class FormatViewDialog(QDialog):
             observations = QTableWidgetItem(item.get("observacion", ""))
             observations.setFlags(observations.flags() | Qt.ItemFlag.ItemIsEditable)
             self.files_table.setItem(row_idx, 8, observations)
+
+            # Botón Excluir
+            is_excluded = self._should_exclude_red(item, fmt)
+            self._add_action_btn(row_idx, 7, "Excluir", self._exclude_file, is_red=is_excluded)
 
         self._is_populating = False
 
@@ -416,8 +416,6 @@ class FormatViewDialog(QDialog):
 
             if current_obs == excluded_msg:
                 item_data["observacion"] = default_obs
-
-            is_red_style = False
         else:
             # Excluir
             item_data["excluir"] = "S"
@@ -426,7 +424,6 @@ class FormatViewDialog(QDialog):
                 'Revise la carpeta "Excepciones".'
             )
             item_data["observacion"] = message
-            is_red_style = True
 
         self.files_table.blockSignals(True)
         table_item = self.files_table.item(row, 8)
@@ -438,45 +435,7 @@ class FormatViewDialog(QDialog):
         table_item.setFlags(table_item.flags() | Qt.ItemFlag.ItemIsEditable)
         self.files_table.blockSignals(False)
 
-        # Actualizar botón
-        wrapper = self.files_table.cellWidget(row, 7)
-        if wrapper:
-            btn = wrapper.findChild(QPushButton)
-            if btn:
-                base_style = """
-                    QPushButton {
-                        border-radius: 4px;
-                        padding: 4px 8px;
-                        font-weight: 500;
-                    }
-                    QPushButton:disabled {
-                        background-color: #f0f0f0;
-                        color: #aaa;
-                        border: 1px solid #eee;
-                    }
-                """
-                if is_red_style:
-                    btn.setStyleSheet(base_style + """
-                        QPushButton {
-                            border: 1px solid #e57373;
-                            background: #ffebee;
-                            color: #c62828;
-                        }
-                        QPushButton:hover {
-                            background-color: #ffcdd2;
-                        }
-                    """)
-                else:
-                    btn.setStyleSheet(base_style + """
-                        QPushButton {
-                            border: 1px solid #cbd5f5;
-                            background: #e0edff;
-                            color: #1d4ed8;
-                        }
-                        QPushButton:hover {
-                            background-color: #c7dcff;
-                        }
-                    """)
+        self._refresh_exclude_button(row)
 
         self.modified = True
 
@@ -606,6 +565,63 @@ class FormatViewDialog(QDialog):
         if item.column() == 8:
             self._row_items[row]["observacion"] = item.text()
             self.modified = True
+            self._refresh_exclude_button(row)
+
+    def _should_exclude_red(self, item: dict, fmt: str | None = None) -> bool:
+        current_fmt = fmt or item.get("formato") or self._infer_format(item)
+        category = self._categorize_format(current_fmt)
+        has_observacion = bool(item.get("observacion"))
+        return (
+            item.get("excluir") == "S"
+            or category in {"Carpetas", "Comprimidos"}
+            or has_observacion
+        )
+
+    def _refresh_exclude_button(self, row: int) -> None:
+        if row >= len(self._row_items):
+            return
+        item_data = self._row_items[row]
+        is_red_style = self._should_exclude_red(item_data, item_data.get("formato"))
+        wrapper = self.files_table.cellWidget(row, 7)
+        if not wrapper:
+            return
+        btn = wrapper.findChild(QPushButton)
+        if not btn:
+            return
+        base_style = """
+            QPushButton {
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-weight: 500;
+            }
+            QPushButton:disabled {
+                background-color: #f0f0f0;
+                color: #aaa;
+                border: 1px solid #eee;
+            }
+        """
+        if is_red_style:
+            btn.setStyleSheet(base_style + """
+                QPushButton {
+                    border: 1px solid #e57373;
+                    background: #ffebee;
+                    color: #c62828;
+                }
+                QPushButton:hover {
+                    background-color: #ffcdd2;
+                }
+            """)
+        else:
+            btn.setStyleSheet(base_style + """
+                QPushButton {
+                    border: 1px solid #cbd5f5;
+                    background: #e0edff;
+                    color: #1d4ed8;
+                }
+                QPushButton:hover {
+                    background-color: #c7dcff;
+                }
+            """)
 
     def _infer_format(self, item: dict) -> str:
         candidates = [
