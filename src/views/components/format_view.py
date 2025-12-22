@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QWidget,
     QMessageBox,
+    QSizePolicy,
 )
 from PyQt6.QtGui import QDesktopServices
 
@@ -62,6 +63,8 @@ class FormatViewDialog(QDialog):
         self.summary_table.setAlternatingRowColors(True)
         self.summary_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.summary_table.verticalHeader().setVisible(False)
+        self.summary_table.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.summary_table.setMaximumHeight(90)
         self.summary_table.setStyleSheet(
             "QTableWidget { background-color: #fff; border: 1px solid #ddd; }"
             "QTableWidget::item { border-bottom: 1px solid #f0f0f0; padding-left: 5px; }"
@@ -112,6 +115,15 @@ class FormatViewDialog(QDialog):
         files_header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
 
         layout.addWidget(self.files_table)
+
+        actions_layout = QHBoxLayout()
+        actions_layout.addStretch(1)
+        self.save_button = QPushButton("Guardar cambios")
+        self.save_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.save_button.setFixedHeight(32)
+        self.save_button.clicked.connect(self._save_and_close)
+        actions_layout.addWidget(self.save_button)
+        layout.addLayout(actions_layout)
 
         self.placeholder = QLabel(
             "El visor de formatos se completará en la siguiente etapa."
@@ -246,6 +258,9 @@ class FormatViewDialog(QDialog):
         table_item.setFlags(table_item.flags() | Qt.ItemFlag.ItemIsEditable)
         self.files_table.setItem(row, 8, table_item)
         self.modified = True
+
+    def _save_and_close(self) -> None:
+        self.accept()
 
     def _resolve_path(self, ruta: str) -> str:
         ruta_text = str(ruta).replace("/", os.sep).replace("\\", os.sep)
