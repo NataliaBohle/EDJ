@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QUrl
@@ -39,7 +40,9 @@ class FormatViewDialog(QDialog):
     def __init__(self, title: str, files: list[dict], parent=None, project_id: str | None = None):
         super().__init__(parent)
         self.setWindowTitle(f"Formatos asociados: {title}")
-        self.resize(1100, 650)
+
+        # Mantuvimos el ancho aumentado para que se vea bien tu nueva distribución
+        self.resize(1350, 700)
 
         self.files = list(files)
         self._source_files = [item for item in self.files if isinstance(item, dict)]
@@ -52,9 +55,10 @@ class FormatViewDialog(QDialog):
         layout = QVBoxLayout(self)
 
         lbl_info = QLabel("Resumen de formatos detectados para este documento.")
-        lbl_info.setStyleSheet("color: #555; margin-bottom: 6px;")
+        lbl_info.setStyleSheet("color: #555; margin-bottom: 0px;")
         layout.addWidget(lbl_info)
 
+        # --- Summary Table ---
         self.summary_table = QTableWidget()
         self.summary_table.setRowCount(1)
         self.summary_table.setColumnCount(len(self.SUMMARY_COLUMNS))
@@ -66,17 +70,13 @@ class FormatViewDialog(QDialog):
         self.summary_table.verticalHeader().setVisible(False)
         self.summary_table.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.summary_table.setMaximumHeight(90)
-        self.summary_table.setStyleSheet(
-            "QTableWidget { background-color: #fff; border: 1px solid #ddd; }"
-            "QTableWidget::item { border-bottom: 1px solid #f0f0f0; padding-left: 5px; }"
-            "QHeaderView::section { background-color: #f8f9fa; padding: 4px; border: none; font-weight: bold; color: #555; }"
-        )
 
         header = self.summary_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
         layout.addWidget(self.summary_table)
 
+        # --- Files Table ---
         self.files_table = QTableWidget()
         self.files_table.setColumnCount(9)
         self.files_table.setHorizontalHeaderLabels(
@@ -92,27 +92,53 @@ class FormatViewDialog(QDialog):
                 "Observaciones",
             ]
         )
-        self.files_table.setWordWrap(False)
+        self.files_table.setWordWrap(True)
         self.files_table.setShowGrid(False)
         self.files_table.setAlternatingRowColors(True)
         self.files_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.files_table.verticalHeader().setDefaultSectionSize(44)
+
+        # --- AJUSTE DE ALTURA DE FILAS ---
+        self.files_table.verticalHeader().setDefaultSectionSize(48)
+        self.files_table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+
         self.files_table.setStyleSheet(
-            "QTableWidget { background-color: #fff; border: 1px solid #ddd; }"
-            "QTableWidget::item { border-bottom: 1px solid #f0f0f0; padding-left: 5px; }"
-            "QHeaderView::section { background-color: #f8f9fa; padding: 4px; border: none; font-weight: bold; color: #555; }"
+            "QTableWidget { background-color: #fff; border: 1px solid #ddd; outline: none; }"
+            "QTableWidget::item { border-bottom: 1px solid #f0f0f0; padding: 0px 5px; }"
+            "QTableWidget::item:selected { background-color: #e3f2fd; color: #000; }"
+            "QHeaderView::section { background-color: #f8f9fa; padding: 0px; border: none; font-weight: bold; color: #555; }"
         )
         self.files_table.itemChanged.connect(self._on_item_changed)
 
         files_header = self.files_table.horizontalHeader()
-        files_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        files_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        files_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        files_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        files_header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        files_header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        files_header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
-        files_header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+
+        # --- TU CONFIGURACIÓN DE COLUMNAS ---
+
+        # 0. Código: Fijo, pequeño
+        files_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self.files_table.setColumnWidth(0, 50)
+
+        # 1. Nombre: Interactivo
+        files_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        self.files_table.setColumnWidth(1, 200)
+
+        # 2. Formato: Interactivo
+        files_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        self.files_table.setColumnWidth(2, 90)
+
+        # 3, 4, 5. Botones: Interactivo
+        for col_idx in [3, 4, 5]:
+            files_header.setSectionResizeMode(col_idx, QHeaderView.ResizeMode.Interactive)
+            self.files_table.setColumnWidth(col_idx, 100)
+
+        # 6. Estado: Interactivo
+        files_header.setSectionResizeMode(6, QHeaderView.ResizeMode.Interactive)
+        self.files_table.setColumnWidth(6, 120)
+
+        # 7. Excluir: Interactivo
+        files_header.setSectionResizeMode(7, QHeaderView.ResizeMode.Interactive)
+        self.files_table.setColumnWidth(7, 100)
+
+        # 8. Observaciones: STRETCH. Toma TODO el espacio restante
         files_header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
 
         layout.addWidget(self.files_table)
@@ -130,7 +156,7 @@ class FormatViewDialog(QDialog):
             "El visor de formatos se completará en la siguiente etapa."
         )
         self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.placeholder.setStyleSheet("color: #777; margin-top: 10px;")
+        self.placeholder.setStyleSheet("color: #777; margin-top: 0px;")
         layout.addWidget(self.placeholder)
 
         self._populate_summary()
@@ -171,54 +197,85 @@ class FormatViewDialog(QDialog):
             self._add_action_btn(row_idx, 3, "Ver", self._open_file, enabled=bool(item.get("ruta")))
             self._add_action_btn(row_idx, 4, "Formatear", self._format_file)
             self._add_action_btn(row_idx, 5, "Reemplazar", self._replace_file)
+
             status_widget = MiniStatusBar(self.files_table)
             status_widget.set_status(self._default_status(item, fmt))
             self.files_table.setCellWidget(row_idx, 6, status_widget)
 
-            self._add_action_btn(row_idx, 7, "Excluir", self._exclude_file)
+            # Botón Excluir
+            is_excluded = item.get("excluir") == "S"
+            self._add_action_btn(row_idx, 7, "Excluir", self._exclude_file, is_red=is_excluded)
+
+            # Observaciones
             default_observation = self._default_observation(item, fmt)
             existing_observation = item.get("observacion")
+
             if not existing_observation and default_observation:
                 item["observacion"] = default_observation
                 self.modified = True
             elif "observacion" not in item:
                 item["observacion"] = existing_observation or ""
+
             had_excluir = "excluir" in item
             item.setdefault("excluir", "N")
             if not had_excluir:
                 self.modified = True
-            observations = QTableWidgetItem(item.get("observacion", default_observation))
+
+            observations = QTableWidgetItem(item.get("observacion", ""))
             observations.setFlags(observations.flags() | Qt.ItemFlag.ItemIsEditable)
             self.files_table.setItem(row_idx, 8, observations)
+
         self._is_populating = False
 
-    def _add_action_btn(self, row: int, col: int, text: str, callback, enabled: bool = True) -> None:
+    def _add_action_btn(self, row: int, col: int, text: str, callback, enabled: bool = True,
+                        is_red: bool = False) -> None:
         btn = QPushButton(text)
         btn.setEnabled(enabled)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setFixedSize(78, 26)
-        btn.setStyleSheet(
-            """
+
+        # Estilos base con padding
+        base_style = """
             QPushButton {
-                border: 1px solid #cbd5f5;
                 border-radius: 4px;
-                background: #e0edff;
-                color: #1d4ed8;
-            }
-            QPushButton:hover {
-                background-color: #c7dcff;
+                padding: 4px 8px;
+                font-weight: 500;
             }
             QPushButton:disabled {
                 background-color: #f0f0f0;
                 color: #aaa;
-                border-color: #eee;
+                border: 1px solid #eee;
             }
+        """
+
+        if is_red:
+            style = base_style + """
+                QPushButton {
+                    border: 1px solid #e57373;
+                    background: #ffebee;
+                    color: #c62828;
+                }
+                QPushButton:hover {
+                    background-color: #ffcdd2;
+                }
             """
-        )
+        else:
+            style = base_style + """
+                QPushButton {
+                    border: 1px solid #cbd5f5;
+                    background: #e0edff;
+                    color: #1d4ed8;
+                }
+                QPushButton:hover {
+                    background-color: #c7dcff;
+                }
+            """
+
+        btn.setStyleSheet(style)
         btn.clicked.connect(lambda _, r=row: callback(r))
 
         wrapper = QWidget()
         layout = QHBoxLayout(wrapper)
+        # CAMBIO AQUÍ: Poner todos los márgenes en 0
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(btn)
@@ -234,7 +291,8 @@ class FormatViewDialog(QDialog):
             QMessageBox.warning(self, "Archivo no encontrado", "No se encontró el archivo.")
             return
         if file_path.lower().endswith(".pdf"):
-            viewer = PdfViewer({"ruta": file_path, "titulo": item.get("titulo") or item.get("nombre")}, self, self.project_id)
+            viewer = PdfViewer({"ruta": file_path, "titulo": item.get("titulo") or item.get("nombre")}, self,
+                               self.project_id)
             viewer.exec()
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(file_path))
@@ -249,20 +307,128 @@ class FormatViewDialog(QDialog):
         if row >= self.files_table.rowCount():
             return
         item_data = self._row_items[row]
-        item_data["excluir"] = "S"
-        message = (
-            'Este archivo no se puede presentar en este documento. '
-            'Revise la carpeta "Excepciones".'
-        )
-        item_data["observacion"] = message
-        table_item = QTableWidgetItem(message)
+
+        if item_data.get("excluir") == "S":
+            # Revertir
+            item_data["excluir"] = "N"
+            default_obs = self._default_observation(item_data, item_data.get("formato"))
+            current_obs = item_data.get("observacion", "")
+            excluded_msg = 'Este archivo no se puede presentar en este documento. Revise la carpeta "Excepciones".'
+
+            if current_obs == excluded_msg:
+                item_data["observacion"] = default_obs
+
+            is_red_style = False
+        else:
+            # Excluir
+            item_data["excluir"] = "S"
+            message = (
+                'Este archivo no se puede presentar en este documento. '
+                'Revise la carpeta "Excepciones".'
+            )
+            item_data["observacion"] = message
+            is_red_style = True
+
+        self.files_table.blockSignals(True)
+        table_item = self.files_table.item(row, 8)
+        if not table_item:
+            table_item = QTableWidgetItem()
+            self.files_table.setItem(row, 8, table_item)
+
+        table_item.setText(item_data["observacion"])
         table_item.setFlags(table_item.flags() | Qt.ItemFlag.ItemIsEditable)
-        self.files_table.setItem(row, 8, table_item)
+        self.files_table.blockSignals(False)
+
+        # Actualizar botón
+        wrapper = self.files_table.cellWidget(row, 7)
+        if wrapper:
+            btn = wrapper.findChild(QPushButton)
+            if btn:
+                base_style = """
+                    QPushButton {
+                        border-radius: 4px;
+                        padding: 4px 8px;
+                        font-weight: 500;
+                    }
+                    QPushButton:disabled {
+                        background-color: #f0f0f0;
+                        color: #aaa;
+                        border: 1px solid #eee;
+                    }
+                """
+                if is_red_style:
+                    btn.setStyleSheet(base_style + """
+                        QPushButton {
+                            border: 1px solid #e57373;
+                            background: #ffebee;
+                            color: #c62828;
+                        }
+                        QPushButton:hover {
+                            background-color: #ffcdd2;
+                        }
+                    """)
+                else:
+                    btn.setStyleSheet(base_style + """
+                        QPushButton {
+                            border: 1px solid #cbd5f5;
+                            background: #e0edff;
+                            color: #1d4ed8;
+                        }
+                        QPushButton:hover {
+                            background-color: #c7dcff;
+                        }
+                    """)
+
         self.modified = True
 
     def _save_and_close(self) -> None:
-        self._apply_changes()
-        self.accept()
+        try:
+            self._apply_changes()
+
+            cambios = {}
+            for item in self.display_files:
+                ruta = item.get("ruta")
+                if not ruta:
+                    continue
+
+                attrs = {}
+                if item.get("excluir") == "S":
+                    attrs["excluir"] = "S"
+                elif "excluir" in item and item.get("excluir") != "S":
+                    attrs["excluir"] = "N"
+
+                if item.get("observacion"):
+                    attrs["observacion"] = item["observacion"]
+
+                if attrs:
+                    cambios[ruta] = attrs
+
+            if self.project_id and cambios:
+                success = False
+                try:
+                    from src.controllers.eval_format import actualizar_atributos_exeva
+                    success = actualizar_atributos_exeva(self.project_id, cambios)
+                except ImportError:
+                    try:
+                        from .eval_format import actualizar_atributos_exeva
+                        success = actualizar_atributos_exeva(self.project_id, cambios)
+                    except ImportError:
+                        try:
+                            from eval_format import actualizar_atributos_exeva
+                            success = actualizar_atributos_exeva(self.project_id, cambios)
+                        except ImportError:
+                            raise ImportError("No se pudo importar 'actualizar_atributos_exeva'.")
+
+                if not success:
+                    QMessageBox.warning(self, "Advertencia",
+                                        "No se pudieron guardar los cambios en el archivo JSON.")
+                    return
+
+            self.accept()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error de Guardado",
+                                 f"Ocurrió un error crítico al intentar guardar:\n{str(e)}")
 
     def _apply_changes(self) -> None:
         for original, edited in zip(self._source_files, self.display_files):
@@ -304,19 +470,8 @@ class FormatViewDialog(QDialog):
     def _default_status(self, item: dict, fmt: str | None) -> str:
         fmt_lower = (fmt or "").strip().lower()
         if fmt_lower in {
-            "doc digital",
-            "carpeta",
-            "zip",
-            "rar",
-            "7z",
-            "tar",
-            "gz",
-            "bz2",
-            "xz",
-            "tgz",
-            "tar.gz",
-            "tar.bz2",
-            "tar.xz",
+            "doc digital", "carpeta", "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz",
+            "tar.gz", "tar.bz2", "tar.xz",
         }:
             return "verificado"
         return (item.get("estado_formato") or "detectado")
@@ -344,12 +499,8 @@ class FormatViewDialog(QDialog):
 
     def _infer_format(self, item: dict) -> str:
         candidates = [
-            item.get("formato"),
-            item.get("ruta"),
-            item.get("url"),
-            item.get("archivo"),
-            item.get("nombre"),
-            item.get("titulo"),
+            item.get("formato"), item.get("ruta"), item.get("url"),
+            item.get("archivo"), item.get("nombre"), item.get("titulo"),
         ]
         for value in candidates:
             fmt = self._format_from_value(value)
@@ -380,7 +531,7 @@ class FormatViewDialog(QDialog):
             return "PDF"
         if fmt_lower in {"doc", "docx", "rtf", "odt", "wpd"}:
             return "DOC"
-        if fmt_lower in {"xls", "xlsx","xlsm", "csv", "parquet", "ods", "fods", "tsv", "dbf", "gsheet", "numbers"}:
+        if fmt_lower in {"xls", "xlsx", "xlsm", "csv", "parquet", "ods", "fods", "tsv", "dbf", "gsheet", "numbers"}:
             return "XLS"
         if fmt_lower in {"ppt", "pptx", "odp", "key", "gslides", "sxi", "shw", "prz"}:
             return "PPT"

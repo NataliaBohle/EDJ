@@ -228,3 +228,63 @@ class EvalFormatController(QObject):
             self.thread.deleteLater()
         self.thread = None
         self.worker = None
+
+
+def actualizar_atributos_exeva(idp: str, cambios: dict[str, dict]) -> bool:
+    """
+    Recorre el JSON de EXEVA y actualiza los atributos (excluir, observacion)
+    de los archivos que coincidan con las rutas especificadas en 'cambios'.
+
+    Args:
+        idp: ID del proyecto.
+        cambios: Diccionario donde la clave es la 'ruta' del archivo y el valor
+                 es un dict con los campos a actualizar {'excluir': 'S', ...}.
+    """
+    payload = _load_payload(idp)
+    if not payload:
+        return False
+
+    exeva = payload.get("EXEVA", {})
+    documentos = exeva.get("documentos", [])
+
+    if not documentos:
+        return False
+
+    modificado = False
+
+    def _update_node(node: dict | list):
+        nonlocal modificado
+        if isinstance(node, list):
+            for item in node:
+                _update_node(item)
+            return
+
+        if isinstance(node, dict):
+            # Intentar coincidencia por ruta
+            ruta = node.get("ruta")
+            if ruta and ruta in cambios:
+                attrs = cambios[ruta]
+                for k, v in attrs.items():
+                    if node.get(k) != v:
+                        node[k] = v
+                        modificado = True
+
+            # Recursión en hijos comunes
+            if "descomprimidos" in node:
+                _update_node(node["descomprimidos"])
+            if "anexos_detectados" in node:
+                _update_node(node["anexos_detectados"])
+            if "vinculados_detectados" in node:
+                _update_node(node["vinculados_detectados"])
+
+    _update_node(documentos)
+
+    if modificado:
+        try:
+            _save_payload(idp, payload)
+            return True
+        except Exception as e:
+            print(f"Error guardando EXEVA: {e}")
+            return False
+
+    return True
