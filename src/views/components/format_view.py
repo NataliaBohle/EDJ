@@ -115,7 +115,7 @@ class FormatViewDialog(QDialog):
 
         files_header = self.files_table.horizontalHeader()
         files_header.setSortIndicatorShown(True)
-        files_header.sectionClicked.connect(self._on_sort_requested)
+        #files_header.sectionClicked.connect(self._on_sort_requested)
 
         # --- TU CONFIGURACIÓN DE COLUMNAS ---
 
@@ -241,6 +241,7 @@ class FormatViewDialog(QDialog):
             self._add_action_btn(row_idx, 7, "Excluir", self._exclude_file, is_red=is_excluded)
 
         self._is_populating = False
+        self.files_table.setSortingEnabled(True)
 
     def _add_action_btn(
         self,
@@ -314,23 +315,6 @@ class FormatViewDialog(QDialog):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(btn)
         self.files_table.setCellWidget(row, col, wrapper)
-
-    def _on_sort_requested(self, column: int) -> None:
-        if self._is_populating:
-            return
-        if column not in {1, 2}:
-            return
-        header = self.files_table.horizontalHeader()
-        if header.sortIndicatorSection() == column:
-            order = (
-                Qt.SortOrder.DescendingOrder
-                if header.sortIndicatorOrder() == Qt.SortOrder.AscendingOrder
-                else Qt.SortOrder.AscendingOrder
-            )
-        else:
-            order = Qt.SortOrder.AscendingOrder
-        header.setSortIndicator(column, order)
-        self.files_table.sortItems(column, order)
 
     def _open_file(self, row: int) -> None:
         item = self.display_files[row]
