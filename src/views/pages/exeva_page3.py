@@ -1,4 +1,5 @@
 from PyQt6.QtCore import Qt, pyqtSignal
+from pathlib import Path
 from functools import partial
 
 from PyQt6.QtWidgets import (
@@ -23,6 +24,7 @@ from src.views.components.mini_status import MiniStatusBar
 from src.views.components.format_view import FormatViewDialog
 from src.models.project_data_manager import ProjectDataManager
 from src.controllers.eval_format import EvalFormatController
+from src.controllers.format_legal import convert_exeva_item, CONVERTIBLE_EXTENSIONS
 
 
 class Exeva3Page(QWidget):
@@ -106,6 +108,7 @@ class Exeva3Page(QWidget):
         )
 
         self.btn_back_step2.clicked.connect(self._on_back_clicked)
+        self.btn_format_edit.clicked.connect(self._on_format_clicked)
         self.btn_continue_step4.clicked.connect(self._on_continue_clicked)
 
         layout.addWidget(self.command_bar)
@@ -217,6 +220,49 @@ class Exeva3Page(QWidget):
         if not self.current_project_id:
             return
         self.eval_controller.start_eval(self.current_project_id)
+
+    def _on_format_clicked(self) -> None:
+        if not self.current_project_id:
+            return
+        total = 0
+        converted = 0
+        errors = 0
+
+        for doc in self.documentos:
+            if not isinstance(doc, dict):
+                continue
+            has_success = False
+            has_error = False
+            for item in self._collect_document_files(doc):
+                if not self._is_item_convertible(item):
+                    continue
+                total += 1
+                success, conv_path, _error = convert_exeva_item(self.current_project_id, item)
+                if success:
+                    if conv_path:
+                        item["conv"] = conv_path
+                    item["estado_formato"] = "edicion"
+                    has_success = True
+                    converted += 1
+                else:
+                    item["estado_formato"] = "error"
+                    has_error = True
+                    errors += 1
+
+            if has_error:
+                doc["estado_formato"] = "error"
+            elif has_success:
+                doc["estado_formato"] = "edicion"
+
+        if total == 0:
+            self.log_requested.emit("⚠️ No hay archivos convertibles para formatear.")
+            return
+
+        self._persist_exeva_payload()
+        self._set_results_table(self.documentos)
+        self.log_requested.emit(
+            f"✅ Conversión finalizada. Convertidos: {converted}. Errores: {errors}."
+        )
 
     def _on_back_clicked(self):
         if not self.current_project_id:
@@ -411,6 +457,22 @@ class Exeva3Page(QWidget):
                 return label
         return None
 
+    def _is_item_convertible(self, item: dict) -> bool:
+        ruta = item.get("ruta") or ""
+        if not ruta:
+            return False
+        fmt_value = (item.get("formato") or "").strip().lower()
+        if fmt_value == "doc digital":
+            return False
+        if fmt_value in {"pdf", "doc", "docx", "rtf", "odt", "wpd"}:
+            return True
+        if fmt_value in {"ppt", "pptx", "odp", "key", "gslides", "sxi", "shw", "prz"}:
+            return True
+        if fmt_value in {"jpg", "jpeg", "png", "gif", "tiff", "tif", "bmp"}:
+            return True
+        suffix = Path(str(ruta)).suffix.lower()
+        return suffix in CONVERTIBLE_EXTENSIONS
+
     def _open_pdf_viewer(self, doc_data: dict) -> None:
         viewer = PdfViewer(doc_data, self, self.current_project_id)
         viewer.show()
@@ -422,6 +484,7 @@ class Exeva3Page(QWidget):
         dialog.exec()
         if dialog.modified:
             self._persist_exeva_payload()
+            self._set_results_table(self.documentos)
 
     def _collect_document_files(self, doc_data: dict) -> list[dict]:
         files: list[dict] = []

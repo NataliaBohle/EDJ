@@ -24,6 +24,7 @@ from PyQt6.QtGui import QDesktopServices
 
 from src.views.components.mini_status import MiniStatusBar
 from src.views.components.pdf_viewer import PdfViewer
+from src.controllers.format_legal import convert_exeva_item, CONVERTIBLE_EXTENSIONS
 
 
 class FormatViewDialog(QDialog):
@@ -40,6 +41,28 @@ class FormatViewDialog(QDialog):
         "Carpetas",
         "Otros",
     ]
+    FILES_COLUMNS = [
+        "Código",
+        "Nombre",
+        "Formato",
+        "Ver archivo",
+        "Formatear",
+        "Convertidos",
+        "Reemplazar",
+        "Estado",
+        "Excluir",
+        "Observaciones",
+    ]
+    COL_CODE = 0
+    COL_NAME = 1
+    COL_FORMAT = 2
+    COL_VIEW = 3
+    COL_FORMAT_BTN = 4
+    COL_CONVERTED = 5
+    COL_REPLACE = 6
+    COL_STATUS = 7
+    COL_EXCLUDE = 8
+    COL_OBS = 9
 
     def __init__(self, title: str, files: list[dict], parent=None, project_id: str | None = None):
         super().__init__(parent)
@@ -84,20 +107,8 @@ class FormatViewDialog(QDialog):
         # --- Files Table ---
         self.files_table = QTableWidget()
         self.files_table.setObjectName("FormatViewFilesTable")
-        self.files_table.setColumnCount(9)
-        self.files_table.setHorizontalHeaderLabels(
-            [
-                "Código",
-                "Nombre",
-                "Formato",
-                "Ver archivo",
-                "Formatear",
-                "Reemplazar",
-                "Estado",
-                "Excluir",
-                "Observaciones",
-            ]
-        )
+        self.files_table.setColumnCount(len(self.FILES_COLUMNS))
+        self.files_table.setHorizontalHeaderLabels(self.FILES_COLUMNS)
         self.files_table.setWordWrap(True)
         self.files_table.setShowGrid(False)
         self.files_table.setAlternatingRowColors(True)
@@ -117,32 +128,32 @@ class FormatViewDialog(QDialog):
         # --- TU CONFIGURACIÓN DE COLUMNAS ---
 
         # 0. Código: Fijo, pequeño
-        files_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        self.files_table.setColumnWidth(0, 50)
+        files_header.setSectionResizeMode(self.COL_CODE, QHeaderView.ResizeMode.Fixed)
+        self.files_table.setColumnWidth(self.COL_CODE, 50)
 
         # 1. Nombre: Interactivo
-        files_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        self.files_table.setColumnWidth(1, 200)
+        files_header.setSectionResizeMode(self.COL_NAME, QHeaderView.ResizeMode.Interactive)
+        self.files_table.setColumnWidth(self.COL_NAME, 200)
 
         # 2. Formato: Interactivo
-        files_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
-        self.files_table.setColumnWidth(2, 90)
+        files_header.setSectionResizeMode(self.COL_FORMAT, QHeaderView.ResizeMode.Interactive)
+        self.files_table.setColumnWidth(self.COL_FORMAT, 90)
 
-        # 3, 4, 5. Botones: Interactivo
-        for col_idx in [3, 4, 5]:
+        # 3, 4, 5, 6. Botones: Interactivo
+        for col_idx in [self.COL_VIEW, self.COL_FORMAT_BTN, self.COL_CONVERTED, self.COL_REPLACE]:
             files_header.setSectionResizeMode(col_idx, QHeaderView.ResizeMode.Interactive)
             self.files_table.setColumnWidth(col_idx, 100)
 
         # 6. Estado: Interactivo
-        files_header.setSectionResizeMode(6, QHeaderView.ResizeMode.Interactive)
-        self.files_table.setColumnWidth(6, 120)
+        files_header.setSectionResizeMode(self.COL_STATUS, QHeaderView.ResizeMode.Interactive)
+        self.files_table.setColumnWidth(self.COL_STATUS, 120)
 
         # 7. Excluir: Interactivo
-        files_header.setSectionResizeMode(7, QHeaderView.ResizeMode.Interactive)
-        self.files_table.setColumnWidth(7, 100)
+        files_header.setSectionResizeMode(self.COL_EXCLUDE, QHeaderView.ResizeMode.Interactive)
+        self.files_table.setColumnWidth(self.COL_EXCLUDE, 100)
 
         # 8. Observaciones: STRETCH. Toma TODO el espacio restante
-        files_header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
+        files_header.setSectionResizeMode(self.COL_OBS, QHeaderView.ResizeMode.Stretch)
 
         layout.addWidget(self.files_table)
 
@@ -195,16 +206,17 @@ class FormatViewDialog(QDialog):
 
             code_item = QTableWidgetItem(code)
             code_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.files_table.setItem(row_idx, 0, code_item)
-            self.files_table.setItem(row_idx, 1, QTableWidgetItem(name))
-            self.files_table.setItem(row_idx, 2, QTableWidgetItem(str(fmt)))
+            self.files_table.setItem(row_idx, self.COL_CODE, code_item)
+            self.files_table.setItem(row_idx, self.COL_NAME, QTableWidgetItem(name))
+            self.files_table.setItem(row_idx, self.COL_FORMAT, QTableWidgetItem(str(fmt)))
 
-            self._add_action_btn(row_idx, 3, "Ver", self._open_file, enabled=bool(item.get("ruta")))
-            self._add_action_btn(row_idx, 4, "Formatear", self._format_file)
+            self._add_action_btn(row_idx, self.COL_VIEW, "Ver", self._open_file, enabled=bool(item.get("ruta")))
+            self._add_action_btn(row_idx, self.COL_FORMAT_BTN, "Formatear", self._format_file)
+            self._add_action_btn(row_idx, self.COL_CONVERTED, "Ver", self._open_converted, enabled=bool(item.get("conv")))
             has_replacement = bool(item.get("archivo_original"))
             self._add_action_btn(
                 row_idx,
-                5,
+                self.COL_REPLACE,
                 "Reemplazar",
                 self._replace_file,
                 is_green=has_replacement,
@@ -212,7 +224,7 @@ class FormatViewDialog(QDialog):
 
             status_widget = MiniStatusBar(self.files_table)
             status_widget.set_status(self._default_status(item, fmt))
-            self.files_table.setCellWidget(row_idx, 6, status_widget)
+            self.files_table.setCellWidget(row_idx, self.COL_STATUS, status_widget)
 
             # Observaciones
             default_observation = self._default_observation(item, fmt)
@@ -231,13 +243,14 @@ class FormatViewDialog(QDialog):
 
             observations = QTableWidgetItem(item.get("observacion", ""))
             observations.setFlags(observations.flags() | Qt.ItemFlag.ItemIsEditable)
-            self.files_table.setItem(row_idx, 8, observations)
+            self.files_table.setItem(row_idx, self.COL_OBS, observations)
 
             # Botón Excluir
             self._ensure_excluir_for_special(item, fmt)
             is_excluded = self._should_exclude_red(item, fmt)
-            self._add_action_btn(row_idx, 7, "Excluir", self._exclude_file, is_red=is_excluded)
+            self._add_action_btn(row_idx, self.COL_EXCLUDE, "Excluir", self._exclude_file, is_red=is_excluded)
             self._refresh_format_button(row_idx, item, fmt)
+            self._refresh_converted_button(row_idx, item)
 
         self._is_populating = False
         self.files_table.setSortingEnabled(True)
@@ -289,8 +302,51 @@ class FormatViewDialog(QDialog):
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(file_path))
 
+    def _open_converted(self, row: int) -> None:
+        item = self.display_files[row]
+        conv = item.get("conv")
+        if not conv:
+            return
+        file_path = self._resolve_path(str(conv))
+        if not file_path or not Path(file_path).exists():
+            QMessageBox.warning(self, "Archivo no encontrado", "No se encontró el archivo convertido.")
+            return
+        viewer = PdfViewer({"ruta": file_path, "titulo": item.get("titulo") or item.get("nombre")}, self,
+                           self.project_id)
+        viewer.exec()
+
     def _format_file(self, _row: int) -> None:
-        QMessageBox.information(self, "Formatear", "Acción de formateo pendiente de implementación.")
+        if _row >= len(self.display_files):
+            return
+        item = self.display_files[_row]
+        fmt = item.get("formato") or self._infer_format(item)
+        if not self._is_convertible(item, fmt):
+            QMessageBox.warning(self, "Formatear", "El archivo seleccionado no es convertible.")
+            return
+        success, conv_path, error = convert_exeva_item(self.project_id, item)
+        if success:
+            if conv_path:
+                item["conv"] = conv_path
+                if _row < len(self._source_files):
+                    self._source_files[_row]["conv"] = conv_path
+            item["estado_formato"] = "edicion"
+            if _row < len(self._source_files):
+                self._source_files[_row]["estado_formato"] = "edicion"
+            self._set_row_status(_row, "edicion")
+            self._refresh_converted_button(_row, item)
+            self._update_document_status("edicion")
+            self.modified = True
+        else:
+            item["estado_formato"] = "error"
+            if _row < len(self._source_files):
+                self._source_files[_row]["estado_formato"] = "error"
+            self._set_row_status(_row, "error")
+            self._update_document_status("error")
+            self.modified = True
+            if error:
+                QMessageBox.warning(self, "Formatear", error)
+            else:
+                QMessageBox.warning(self, "Formatear", "No se pudo convertir el archivo.")
 
     def _replace_file(self, _row: int) -> None:
         if _row >= len(self.display_files):
@@ -320,26 +376,28 @@ class FormatViewDialog(QDialog):
 
         item["ruta"] = nueva_ruta
         item["archivo"] = Path(filename).name
+        item.pop("conv", None)
 
         fmt = self._format_from_value(nueva_ruta) or item.get("formato")
         if fmt:
             item["formato"] = fmt
 
-        name_item = self.files_table.item(_row, 1)
+        name_item = self.files_table.item(_row, self.COL_NAME)
         if name_item:
             name_item.setText(self._format_name(item))
-        format_item = self.files_table.item(_row, 2)
+        format_item = self.files_table.item(_row, self.COL_FORMAT)
         if format_item:
             format_item.setText(str(item.get("formato") or self._infer_format(item)))
         self._refresh_format_button(_row, item)
+        self._refresh_converted_button(_row, item)
 
-        view_wrapper = self.files_table.cellWidget(_row, 3)
+        view_wrapper = self.files_table.cellWidget(_row, self.COL_VIEW)
         if view_wrapper:
             view_button = view_wrapper.findChild(QPushButton)
             if view_button:
                 view_button.setEnabled(bool(item.get("ruta")))
 
-        replace_wrapper = self.files_table.cellWidget(_row, 5)
+        replace_wrapper = self.files_table.cellWidget(_row, self.COL_REPLACE)
         if replace_wrapper:
             replace_button = replace_wrapper.findChild(QPushButton)
             if replace_button:
@@ -371,10 +429,10 @@ class FormatViewDialog(QDialog):
             item_data["observacion"] = message
 
         self.files_table.blockSignals(True)
-        table_item = self.files_table.item(row, 8)
+        table_item = self.files_table.item(row, self.COL_OBS)
         if not table_item:
             table_item = QTableWidgetItem()
-            self.files_table.setItem(row, 8, table_item)
+        self.files_table.setItem(row, self.COL_OBS, table_item)
 
         table_item.setText(item_data["observacion"])
         table_item.setFlags(table_item.flags() | Qt.ItemFlag.ItemIsEditable)
@@ -435,7 +493,16 @@ class FormatViewDialog(QDialog):
 
     def _apply_changes(self) -> None:
         for original, edited in zip(self._source_files, self.display_files):
-            for key in ("excluir", "observacion", "ruta", "archivo_original", "archivo", "formato"):
+            for key in (
+                "excluir",
+                "observacion",
+                "ruta",
+                "archivo_original",
+                "archivo",
+                "formato",
+                "conv",
+                "estado_formato",
+            ):
                 if key in edited:
                     original[key] = edited.get(key)
                 elif key in {"excluir", "observacion"}:
@@ -515,7 +582,7 @@ class FormatViewDialog(QDialog):
         row = item.row()
         if row >= len(self._row_items):
             return
-        if item.column() == 8:
+        if item.column() == self.COL_OBS:
             self._row_items[row]["observacion"] = item.text()
             self._ensure_excluir_for_special(self._row_items[row])
             self.modified = True
@@ -546,7 +613,7 @@ class FormatViewDialog(QDialog):
         item_data = self._row_items[row]
         self._ensure_excluir_for_special(item_data)
         is_red_style = self._should_exclude_red(item_data, item_data.get("formato"))
-        wrapper = self.files_table.cellWidget(row, 7)
+        wrapper = self.files_table.cellWidget(row, self.COL_EXCLUDE)
         if not wrapper:
             return
         btn = wrapper.findChild(QPushButton)
@@ -576,7 +643,8 @@ class FormatViewDialog(QDialog):
         fmt_lower = (current_fmt or "").strip().lower()
         is_doc_digital = fmt_lower == "doc digital"
         is_excluded = self._should_exclude_red(item_data, current_fmt)
-        wrapper = self.files_table.cellWidget(row, 4)
+        is_convertible = self._is_convertible(item_data, current_fmt)
+        wrapper = self.files_table.cellWidget(row, self.COL_FORMAT_BTN)
         if not wrapper:
             return
         btn = wrapper.findChild(QPushButton)
@@ -586,12 +654,64 @@ class FormatViewDialog(QDialog):
             self._set_action_variant(btn, "success")
             btn.setProperty("formatLocked", "true")
             btn.setEnabled(False)
+        elif not is_convertible:
+            self._set_action_variant(btn, "primary")
+            btn.setProperty("formatLocked", False)
+            btn.setEnabled(False)
         else:
             self._set_action_variant(btn, "primary")
             btn.setProperty("formatLocked", False)
             btn.setEnabled(not is_excluded)
         btn.style().unpolish(btn)
         btn.style().polish(btn)
+
+    def _refresh_converted_button(self, row: int, item: dict | None = None) -> None:
+        if row >= len(self._row_items):
+            return
+        item_data = item or self._row_items[row]
+        wrapper = self.files_table.cellWidget(row, self.COL_CONVERTED)
+        if not wrapper:
+            return
+        btn = wrapper.findChild(QPushButton)
+        if not btn:
+            return
+        btn.setEnabled(bool(item_data.get("conv")))
+
+    def _set_row_status(self, row: int, status: str) -> None:
+        widget = self.files_table.cellWidget(row, self.COL_STATUS)
+        if isinstance(widget, MiniStatusBar):
+            widget.set_status(status)
+
+    def _update_document_status(self, status: str) -> None:
+        if not self.display_files or not self._source_files:
+            return
+        current = (self._source_files[0].get("estado_formato") or "").strip().lower()
+        if status == "error":
+            self._source_files[0]["estado_formato"] = "error"
+            self.display_files[0]["estado_formato"] = "error"
+            self._set_row_status(0, "error")
+        elif status == "edicion" and current != "error":
+            self._source_files[0]["estado_formato"] = "edicion"
+            self.display_files[0]["estado_formato"] = "edicion"
+            self._set_row_status(0, "edicion")
+
+    def _is_convertible(self, item: dict, fmt: str | None) -> bool:
+        if not item.get("ruta"):
+            return False
+        fmt_lower = (fmt or "").strip().lower()
+        if fmt_lower == "doc digital":
+            return False
+        if fmt_lower in {"pdf"}:
+            return True
+        if fmt_lower in {"doc", "docx", "rtf", "odt", "wpd"}:
+            return True
+        if fmt_lower in {"ppt", "pptx", "odp", "key", "gslides", "sxi", "shw", "prz"}:
+            return True
+        if fmt_lower in {"jpg", "jpeg", "png", "gif", "tiff", "tif", "bmp"}:
+            return True
+        ruta = item.get("ruta") or ""
+        suffix = Path(str(ruta)).suffix.lower()
+        return suffix in CONVERTIBLE_EXTENSIONS
 
     def _infer_format(self, item: dict) -> str:
         candidates = [
