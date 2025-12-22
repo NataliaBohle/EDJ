@@ -70,7 +70,7 @@ class FormatViewDialog(QDialog):
         layout.addWidget(self.summary_table)
 
         self.files_table = QTableWidget()
-        self.files_table.setColumnCount(7)
+        self.files_table.setColumnCount(9)
         self.files_table.setHorizontalHeaderLabels(
             [
                 "Código",
@@ -80,6 +80,8 @@ class FormatViewDialog(QDialog):
                 "Formatear",
                 "Reemplazar",
                 "Estado",
+                "Excluir",
+                "Observaciones",
             ]
         )
         self.files_table.setWordWrap(False)
@@ -101,6 +103,8 @@ class FormatViewDialog(QDialog):
         files_header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         files_header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         files_header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        files_header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+        files_header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
 
         layout.addWidget(self.files_table)
 
@@ -146,10 +150,14 @@ class FormatViewDialog(QDialog):
             self._add_action_btn(row_idx, 3, "Ver", self._open_file, enabled=bool(item.get("ruta")))
             self._add_action_btn(row_idx, 4, "Formatear", self._format_file)
             self._add_action_btn(row_idx, 5, "Reemplazar", self._replace_file)
-
             status_widget = MiniStatusBar(self.files_table)
-            status_widget.set_status((item.get("estado_formato") or "detectado"))
+            status_widget.set_status(self._default_status(item, fmt))
             self.files_table.setCellWidget(row_idx, 6, status_widget)
+
+            self._add_action_btn(row_idx, 7, "Excluir", self._exclude_file)
+            observations = QTableWidgetItem(self._default_observation(item, fmt))
+            observations.setFlags(observations.flags() | Qt.ItemFlag.ItemIsEditable)
+            self.files_table.setItem(row_idx, 8, observations)
 
     def _add_action_btn(self, row: int, col: int, text: str, callback, enabled: bool = True) -> None:
         btn = QPushButton(text)
@@ -204,6 +212,16 @@ class FormatViewDialog(QDialog):
     def _replace_file(self, _row: int) -> None:
         QMessageBox.information(self, "Reemplazar", "Acción de reemplazo pendiente de implementación.")
 
+    def _exclude_file(self, row: int) -> None:
+        if row >= self.files_table.rowCount():
+            return
+        item = QTableWidgetItem(
+            'Este archivo no se puede presentar en este documento. '
+            'Revise la carpeta "Excepciones".'
+        )
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+        self.files_table.setItem(row, 8, item)
+
     def _resolve_path(self, ruta: str) -> str:
         ruta_text = str(ruta)
         if Path(ruta_text).is_absolute():
@@ -232,6 +250,24 @@ class FormatViewDialog(QDialog):
         if ruta:
             return Path(str(ruta)).name
         return "Archivo"
+
+    def _default_status(self, item: dict, fmt: str | None) -> str:
+        fmt_lower = (fmt or "").strip().lower()
+        if fmt_lower in {"doc digital", "carpeta", "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz"}:
+            return "verificado"
+        return (item.get("estado_formato") or "detectado")
+
+    def _default_observation(self, item: dict, fmt: str | None) -> str:
+        fmt_lower = (fmt or "").strip().lower()
+        if fmt_lower == "carpeta":
+            return "Esta entrada corresponde a una carpeta. Se conserva para reflejar el orden de expediente"
+        if fmt_lower in {
+            "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz",
+            "xls", "xlsx", "csv", "parquet",
+            "shp", "shx", "dbf", "prj", "kml", "kmz", "geojson", "gml", "gpkg", "tif", "tiff",
+        }:
+            return 'Este archivo no se puede convertir a PDF. Revise la carpeta "Archivos no PDF".'
+        return ""
 
     def _infer_format(self, item: dict) -> str:
         candidates = [
