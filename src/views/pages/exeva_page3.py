@@ -244,8 +244,11 @@ class Exeva3Page(QWidget):
                         continue
 
                     total += 1
-                    # Nota: Asegúrate que convert_exeva_item no imprima prints internamente si quieres silencio en consola
-                    success, conv_path, _error = convert_exeva_item(self.current_project_id, item)
+                    success, conv_path, _error = convert_exeva_item(
+                        self.current_project_id,
+                        item,
+                        log_callback=self.log_requested.emit,
+                    )
 
                     if success:
                         if conv_path:
@@ -258,8 +261,7 @@ class Exeva3Page(QWidget):
                     else:
                         # CAMBIO AQUI: print -> self.log_requested.emit
                         msg_err = f"⚠️ Error convirtiendo {item.get('nombre')}: {_error}"
-                        print(msg_err) # Mantener en consola por si acaso
-                        self.log_requested.emit(msg_err) # Enviar a la App
+                        self.log_requested.emit(msg_err)
 
                         item["estado_formato"] = "error"
                         has_error = True
@@ -268,7 +270,6 @@ class Exeva3Page(QWidget):
                 except Exception as e:
                     # CAMBIO AQUI: print -> self.log_requested.emit
                     msg_exc = f"❌ Excepción en archivo {item.get('nombre')}: {e}"
-                    print(msg_exc)
                     self.log_requested.emit(msg_exc)
 
                     item["estado_formato"] = "error"
@@ -506,7 +507,13 @@ class Exeva3Page(QWidget):
     def _open_format_review(self, doc_data: dict) -> None:
         titulo = doc_data.get("titulo") or "Documento"
         files = self._collect_document_files(doc_data)
-        dialog = FormatViewDialog(titulo, files, self, self.current_project_id)
+        dialog = FormatViewDialog(
+            titulo,
+            files,
+            self,
+            self.current_project_id,
+            log_callback=self.log_requested.emit,
+        )
         dialog.exec()
         if dialog.modified:
             self._persist_exeva_payload()

@@ -65,7 +65,14 @@ class FormatViewDialog(QDialog):
     COL_EXCLUDE = 8
     COL_OBS = 9
 
-    def __init__(self, title: str, files: list[dict], parent=None, project_id: str | None = None):
+    def __init__(
+        self,
+        title: str,
+        files: list[dict],
+        parent=None,
+        project_id: str | None = None,
+        log_callback=None,
+    ):
         super().__init__(parent)
         self.setWindowTitle(f"Formatos asociados: {title}")
 
@@ -76,6 +83,7 @@ class FormatViewDialog(QDialog):
         self._source_files = [item for item in self.files if isinstance(item, dict)]
         self.display_files = [dict(item) for item in self._source_files]
         self.project_id = project_id
+        self.log_callback = log_callback
         self.modified = False
         self._row_items: list[dict] = []
         self._is_populating = False
@@ -124,6 +132,8 @@ class FormatViewDialog(QDialog):
 
         files_header = self.files_table.horizontalHeader()
         files_header.setSortIndicatorShown(True)
+        files_header.setStretchLastSection(True)
+        files_header.setMinimumSectionSize(60)
         #files_header.sectionClicked.connect(self._on_sort_requested)
 
         # --- TU CONFIGURACIÓN DE COLUMNAS ---
@@ -334,7 +344,11 @@ class FormatViewDialog(QDialog):
                 return
 
             # Llamada al controlador
-            success, conv_path, error = convert_exeva_item(self.project_id, item)
+            success, conv_path, error = convert_exeva_item(
+                self.project_id,
+                item,
+                log_callback=self.log_callback,
+            )
 
             if success:
                 if conv_path:
@@ -458,7 +472,7 @@ class FormatViewDialog(QDialog):
 
     def _save_and_close(self) -> None:
         try:
-            print("💾 Iniciando guardado de cambios...") # Log consola
+            self._log_message("💾 Iniciando guardado de cambios...")
             self._apply_changes()
 
             cambios = {}
@@ -496,10 +510,12 @@ class FormatViewDialog(QDialog):
                             from eval_format import actualizar_atributos_exeva
                             success = actualizar_atributos_exeva(self.project_id, cambios)
                         except ImportError:
-                            print("❌ Error crítico: No se pudo importar 'actualizar_atributos_exeva'")
+                            self._log_message(
+                                "❌ Error crítico: No se pudo importar 'actualizar_atributos_exeva'"
+                            )
                             raise ImportError("No se pudo importar 'actualizar_atributos_exeva'.")
                 except Exception as e_internal:
-                    print(f"❌ Error INTERNO en actualizar_atributos_exeva: {e_internal}")
+                    self._log_message(f"❌ Error INTERNO en actualizar_atributos_exeva: {e_internal}")
                     traceback.print_exc()
                     raise e_internal
 
@@ -508,15 +524,21 @@ class FormatViewDialog(QDialog):
                                         "No se pudieron guardar los cambios en el archivo JSON.")
                     return
 
-            print("✅ Guardado exitoso, cerrando diálogo.")
+            self._log_message("✅ Guardado exitoso, cerrando diálogo.")
             self.accept()
 
         except Exception as e:
-            print("🔥 CRASH DETECTADO EN SAVE_AND_CLOSE 🔥")
-            print(f"Error: {e}")
+            self._log_message("🔥 CRASH DETECTADO EN SAVE_AND_CLOSE 🔥")
+            self._log_message(f"Error: {e}")
             traceback.print_exc()
             QMessageBox.critical(self, "Error de Guardado",
                                  f"Ocurrió un error crítico al intentar guardar:\n{str(e)}")
+
+    def _log_message(self, message: str) -> None:
+        if self.log_callback:
+            self.log_callback(message)
+        else:
+            print(message)
 
     def _apply_changes(self) -> None:
         for original, edited in zip(self._source_files, self.display_files):

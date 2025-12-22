@@ -1,5 +1,6 @@
 import os
 import json
+import atexit
 from pathlib import Path
 from collections import Counter
 from typing import Iterable
@@ -22,6 +23,60 @@ PPT_EXTENSIONS = {".ppt", ".pptx", ".odp", ".key", ".gslides", ".sxi", ".shw", "
 IMG_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif", ".tiff"}
 PDF_EXTENSIONS = {".pdf"}
 CONVERTIBLE_EXTENSIONS = DOC_EXTENSIONS | PPT_EXTENSIONS | IMG_EXTENSIONS | PDF_EXTENSIONS
+
+_word_app = None
+_ppt_app = None
+
+
+def _emit_log(log_callback, message: str) -> None:
+    if log_callback:
+        log_callback(message)
+    else:
+        print(message)
+
+
+def _get_word_app():
+    global _word_app
+    if _word_app is None:
+        _word_app = client.Dispatch("Word.Application")
+        _word_app.Visible = False
+    return _word_app
+
+
+def _get_powerpoint_app():
+    global _ppt_app
+    if _ppt_app is None:
+        _ppt_app = client.Dispatch("PowerPoint.Application")
+        _ppt_app.Visible = False
+    return _ppt_app
+
+
+def _reset_word_app() -> None:
+    global _word_app
+    if _word_app is not None:
+        try:
+            _word_app.Quit()
+        except Exception:
+            pass
+    _word_app = None
+
+
+def _reset_powerpoint_app() -> None:
+    global _ppt_app
+    if _ppt_app is not None:
+        try:
+            _ppt_app.Quit()
+        except Exception:
+            pass
+    _ppt_app = None
+
+
+def _shutdown_com_apps() -> None:
+    _reset_word_app()
+    _reset_powerpoint_app()
+
+
+atexit.register(_shutdown_com_apps)
 
 
 def _resolve_project_path(project_id: str | None, ruta: str) -> Path:
@@ -100,7 +155,11 @@ def img2pdf_auto(img: Image.Image, salida: str) -> None:
             os.remove(temp)
 
 
-def pdf2imgpdf(ruta_pdf: str | Path, salida_pdf: str | Path) -> bool:
+def pdf2imgpdf(
+    ruta_pdf: str | Path,
+    salida_pdf: str | Path,
+    log_callback=None,
+) -> bool:
     try:
         doc = pymupdf.open(str(ruta_pdf))
         if len(doc) == 0:
@@ -144,57 +203,62 @@ def pdf2imgpdf(ruta_pdf: str | Path, salida_pdf: str | Path) -> bool:
         salida_pdf = str(salida_pdf)
         if ya_es_legal:
             shutil.copy2(str(ruta_pdf), salida_pdf)
-            print(f"✔️ Ya está en formato legal: {ruta_pdf}")
+            _emit_log(log_callback, f"✔️ Ya está en formato legal: {ruta_pdf}")
             return True
 
         nuevo.save(salida_pdf)
-        print(f"✅ PDF ajustado: {salida_pdf}")
+        _emit_log(log_callback, f"✅ PDF ajustado: {salida_pdf}")
         return True
 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        _emit_log(log_callback, f"❌ Error: {e}")
         if os.path.exists(str(salida_pdf)):
             os.remove(str(salida_pdf))
         return False
 
 
-def _attempt_word_conversion(word, source_path: Path, target_path: Path) -> bool:
+def _attempt_word_conversion(word, source_path: Path, target_path: Path, log_callback=None) -> bool:
     try:
         doc = word.Documents.Open(str(source_path))
         doc.SaveAs(str(target_path), FileFormat=17)  # 17 = wdFormatPDF
         doc.Close()
         return True
     except Exception as e:
-        print(f"⚠️ Error al abrir {source_path.name}: {e}")
+        _emit_log(log_callback, f"⚠️ Error al abrir {source_path.name}: {e}")
         return False
 
 
-def _attempt_ppt_conversion(powerpoint, source_path: Path, target_path: Path) -> bool:
+def _attempt_ppt_conversion(powerpoint, source_path: Path, target_path: Path, log_callback=None) -> bool:
     try:
         presentation = powerpoint.Presentations.Open(str(source_path), WithWindow=False)
         presentation.SaveAs(str(target_path), FileFormat=32)  # 32 = ppSaveAsPDF
         presentation.Close()
         return True
     except Exception as e:
-        print(f"⚠️ Error al abrir {source_path.name}: {e}")
+        _emit_log(log_callback, f"⚠️ Error al abrir {source_path.name}: {e}")
         return False
 
 
-def doc2pdf(doc_path: str | Path, out_pdf: str | Path, max_path_len: int = 240) -> Path:
+def doc2pdf(
+    doc_path: str | Path,
+    out_pdf: str | Path,
+    max_path_len: int = 240,
+    log_callback=None,
+    word_app=None,
+) -> Path:
     doc_path = Path(doc_path).resolve()
     out_pdf = Path(out_pdf).resolve()
 
     if not doc_path.exists():
         raise FileNotFoundError(f"Archivo no encontrado: {doc_path}")
 
-    word = client.Dispatch("Word.Application")
-    word.Visible = False
+    word = word_app or _get_word_app()
 
     try:
-        print(f"📝 {doc_path.name} → DOC a PDF")
+        _emit_log(log_callback, f"📝 {doc_path.name} → DOC a PDF")
 
         if len(str(doc_path)) < max_path_len and len(str(out_pdf)) < max_path_len:
-            if _attempt_word_conversion(word, doc_path, out_pdf):
+            if _attempt_word_conversion(word, doc_path, out_pdf, log_callback=log_callback):
                 return out_pdf
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -205,31 +269,38 @@ def doc2pdf(doc_path: str | Path, out_pdf: str | Path, max_path_len: int = 240) 
             temp_pdf = Path(tmpdir) / f"{safe_stem}.pdf"
 
             shutil.copy2(doc_path, temp_doc)
-            print(f"🔁 Reintentando con archivo temporal: {temp_doc.name}")
+            _emit_log(log_callback, f"🔁 Reintentando con archivo temporal: {temp_doc.name}")
 
-            if _attempt_word_conversion(word, temp_doc, temp_pdf):
+            if _attempt_word_conversion(word, temp_doc, temp_pdf, log_callback=log_callback):
                 shutil.copy2(temp_pdf, out_pdf)
                 return out_pdf
             raise RuntimeError(f"❌ No se pudo convertir ni el archivo original ni el temporal: {doc_path.name}")
-    finally:
-        word.Quit()
+    except Exception:
+        if word_app is None:
+            _reset_word_app()
+        raise
 
 
-def ppt2pdf(ppt_path: str | Path, out_pdf: str | Path, max_path_len: int = 240) -> Path:
+def ppt2pdf(
+    ppt_path: str | Path,
+    out_pdf: str | Path,
+    max_path_len: int = 240,
+    log_callback=None,
+    powerpoint_app=None,
+) -> Path:
     ppt_path = Path(ppt_path).resolve()
     out_pdf = Path(out_pdf).resolve()
 
     if not ppt_path.exists():
         raise FileNotFoundError(f"Archivo no encontrado: {ppt_path}")
 
-    powerpoint = client.Dispatch("PowerPoint.Application")
-    powerpoint.Visible = False
+    powerpoint = powerpoint_app or _get_powerpoint_app()
 
     try:
-        print(f"📊 {ppt_path.name} → PPT a PDF")
+        _emit_log(log_callback, f"📊 {ppt_path.name} → PPT a PDF")
 
         if len(str(ppt_path)) < max_path_len and len(str(out_pdf)) < max_path_len:
-            if _attempt_ppt_conversion(powerpoint, ppt_path, out_pdf):
+            if _attempt_ppt_conversion(powerpoint, ppt_path, out_pdf, log_callback=log_callback):
                 return out_pdf
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -240,17 +311,19 @@ def ppt2pdf(ppt_path: str | Path, out_pdf: str | Path, max_path_len: int = 240) 
             temp_pdf = Path(tmpdir) / f"{safe_stem}.pdf"
 
             shutil.copy2(ppt_path, temp_ppt)
-            print(f"🔁 Reintentando con archivo temporal: {temp_ppt.name}")
+            _emit_log(log_callback, f"🔁 Reintentando con archivo temporal: {temp_ppt.name}")
 
-            if _attempt_ppt_conversion(powerpoint, temp_ppt, temp_pdf):
+            if _attempt_ppt_conversion(powerpoint, temp_ppt, temp_pdf, log_callback=log_callback):
                 shutil.copy2(temp_pdf, out_pdf)
                 return out_pdf
             raise RuntimeError(f"❌ No se pudo convertir ni el archivo original ni el temporal: {ppt_path.name}")
-    finally:
-        powerpoint.Quit()
+    except Exception:
+        if powerpoint_app is None:
+            _reset_powerpoint_app()
+        raise
 
 
-def convert_file_to_pdf(source_path: Path, output_dir: Path) -> Path | None:
+def convert_file_to_pdf(source_path: Path, output_dir: Path, log_callback=None) -> Path | None:
     ext = source_path.suffix.lower()
     if ext not in CONVERTIBLE_EXTENSIONS:
         return None
@@ -260,7 +333,7 @@ def convert_file_to_pdf(source_path: Path, output_dir: Path) -> Path | None:
 
     try:
         if ext in PDF_EXTENSIONS:
-            if pdf2imgpdf(source_path, output_path):
+            if pdf2imgpdf(source_path, output_path, log_callback=log_callback):
                 return output_path
             return None
 
@@ -271,9 +344,9 @@ def convert_file_to_pdf(source_path: Path, output_dir: Path) -> Path | None:
 
         if ext in DOC_EXTENSIONS:
             temp_doc_pdf = output_dir / f"{source_path.stem}.intermediate.pdf"
-            doc2pdf(source_path, temp_doc_pdf)
+            doc2pdf(source_path, temp_doc_pdf, log_callback=log_callback)
             try:
-                if pdf2imgpdf(temp_doc_pdf, output_path):
+                if pdf2imgpdf(temp_doc_pdf, output_path, log_callback=log_callback):
                     return output_path
             finally:
                 if temp_doc_pdf.exists():
@@ -282,16 +355,16 @@ def convert_file_to_pdf(source_path: Path, output_dir: Path) -> Path | None:
 
         if ext in PPT_EXTENSIONS:
             temp_ppt_pdf = output_dir / f"{source_path.stem}.intermediate.pdf"
-            ppt2pdf(source_path, temp_ppt_pdf)
+            ppt2pdf(source_path, temp_ppt_pdf, log_callback=log_callback)
             try:
-                if pdf2imgpdf(temp_ppt_pdf, output_path):
+                if pdf2imgpdf(temp_ppt_pdf, output_path, log_callback=log_callback):
                     return output_path
             finally:
                 if temp_ppt_pdf.exists():
                     temp_ppt_pdf.unlink()
             return None
     except Exception as exc:
-        print(f"⚠️ Error al convertir {source_path.name}: {exc}")
+        _emit_log(log_callback, f"⚠️ Error al convertir {source_path.name}: {exc}")
         if output_path.exists():
             output_path.unlink()
         return None
@@ -299,7 +372,11 @@ def convert_file_to_pdf(source_path: Path, output_dir: Path) -> Path | None:
     return None
 
 
-def convert_exeva_item(project_id: str | None, item: dict) -> tuple[bool, str | None, str | None]:
+def convert_exeva_item(
+    project_id: str | None,
+    item: dict,
+    log_callback=None,
+) -> tuple[bool, str | None, str | None]:
     try:
         ruta = item.get("ruta")
         if not ruta:
@@ -320,7 +397,8 @@ def convert_exeva_item(project_id: str | None, item: dict) -> tuple[bool, str | 
                 return True, str(conv_value), None
 
         output_dir = _conv_dir(project_id)
-        output_path = convert_file_to_pdf(source_path, output_dir)
+        _emit_log(log_callback, f"⚙️ Formateando {source_path.name}...")
+        output_path = convert_file_to_pdf(source_path, output_dir, log_callback=log_callback)
         if not output_path:
             return False, None, "Error al convertir."
 
@@ -399,76 +477,3 @@ def format_legal(CLAVE, ID):
         json.dump(data, f, indent=2, ensure_ascii=False)
 
     print(f"\n✅ JSON actualizado: {json_out}")
-
-    def procesar(obj):
-        if isinstance(obj, dict):
-            if 'ruta' in obj and 'formato' in obj and obj['ruta']:
-                ruta = os.path.normpath(Path(obj['ruta']))
-                nombre = os.path.basename(ruta)
-                if not nombre:
-                    print(f"⚠️ Ruta vacía, se omite: {ruta}")
-                    return
-                ext = os.path.splitext(ruta)[1].lower()
-                salida_pdf = str(generar_nombre_unico(PDF_OUT, Path(nombre).with_suffix(".pdf").name))
-
-                if not os.path.exists(ruta):
-                    print(f"❌ {nombre} → No encontrado: {ruta}")
-                elif ruta in RUTAS_PROCESADAS:
-                    print(f"🔁 {nombre} → Ya procesado anteriormente. Se omite.")
-                else:
-                    RUTAS_PROCESADAS.add(ruta)
-                    try:
-                        if ext == '.pdf':
-                            print(f"📄 {nombre} → PDF a imágenes PDF")
-                            if pdf2imgpdf(ruta, salida_pdf):
-                                obj['conv'] = salida_pdf.replace("\\", "/")
-                        elif ext in CONVERTIBLES_IMG:
-                            print(f"🖼️ {nombre} → Imagen")
-                            img = Image.open(ruta)
-                            img2pdf_auto(img, salida_pdf)
-                            if os.path.exists(salida_pdf):
-                                obj['conv'] = salida_pdf.replace("\\", "/")
-                        elif ext in ['.doc', '.docx']:
-                            print(f"📝 {nombre} → DOC a PDF")
-                            temp_doc_pdf = str(PDF_OUT / Path(nombre).with_suffix(".intermediate.pdf").name)
-                            doc2pdf(ruta, temp_doc_pdf)
-                            if os.path.exists(temp_doc_pdf):
-                                print(f"📄 Convertido → Ajuste a tamaño legal")
-                                if pdf2imgpdf(temp_doc_pdf, salida_pdf):
-                                    obj['conv'] = salida_pdf.replace("\\", "/")
-                                os.remove(temp_doc_pdf)
-                            else:
-                                print(f"⚠️ Falló conversión Word")
-                        elif ext == '.txt':
-                            print(f"📄 {nombre} → TXT a PDF")
-                            temp_txt_pdf = str(PDF_OUT / Path(nombre).with_suffix(".intermediate.pdf").name)
-                            txt2pdf(ruta, temp_txt_pdf)
-                            if os.path.exists(temp_txt_pdf):
-                                print(f"📄 Convertido → Ajuste a tamaño legal")
-                                if pdf2imgpdf(temp_txt_pdf, salida_pdf):
-                                    obj['conv'] = salida_pdf.replace("\\", "/")
-                                os.remove(temp_txt_pdf)
-                            else:
-                                print(f"⚠️ Falló conversión TXT")
-                        else:
-                            print(f"📁 {nombre} → Formato no convertible")
-                    except Exception as e:
-                        print(f"⚠️ {nombre} → Error: {e}")
-
-            for v in obj.values():
-                procesar(v)
-
-        elif isinstance(obj, list):
-            for item in obj:
-                procesar(item)
-
-    print("📊 Formatos detectados:")
-    for fmt, cantidad in contar_formatos(data).items():
-        print(f"{fmt}: {cantidad}")
-
-    procesar(data)
-
-    with open(JSON_OUT, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-
-    print(f"\n✅ JSON actualizado: {JSON_OUT}")
