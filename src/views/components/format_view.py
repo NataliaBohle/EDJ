@@ -236,6 +236,7 @@ class FormatViewDialog(QDialog):
             self._ensure_excluir_for_special(item, fmt)
             is_excluded = self._should_exclude_red(item, fmt)
             self._add_action_btn(row_idx, 7, "Excluir", self._exclude_file, is_red=is_excluded)
+            self._refresh_format_button(row_idx, item, fmt)
 
         self._is_populating = False
         self.files_table.setSortingEnabled(True)
@@ -553,11 +554,31 @@ class FormatViewDialog(QDialog):
             self._set_action_variant(btn, "danger")
         else:
             self._set_action_variant(btn, "primary")
+        self._refresh_format_button(row, item_data)
 
     def _set_action_variant(self, btn: QPushButton, variant: str) -> None:
         btn.setProperty("variant", variant)
         btn.style().unpolish(btn)
         btn.style().polish(btn)
+
+    def _refresh_format_button(
+        self,
+        row: int,
+        item: dict | None = None,
+        fmt: str | None = None,
+    ) -> None:
+        if row >= len(self._row_items):
+            return
+        item_data = item or self._row_items[row]
+        current_fmt = fmt or item_data.get("formato") or self._infer_format(item_data)
+        is_excluded = self._should_exclude_red(item_data, current_fmt)
+        wrapper = self.files_table.cellWidget(row, 4)
+        if not wrapper:
+            return
+        btn = wrapper.findChild(QPushButton)
+        if not btn:
+            return
+        btn.setEnabled(not is_excluded)
 
     def _infer_format(self, item: dict) -> str:
         candidates = [
