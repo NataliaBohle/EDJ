@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import json
+import shutil
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QUrl
@@ -18,9 +19,11 @@ from PyQt6.QtWidgets import (
     QWidget,
     QMessageBox,
     QSizePolicy,
+    QFileDialog,
 )
 from PyQt6.QtGui import QDesktopServices
 
+from src.controllers.eval_format import actualizar_atributos_exeva
 from src.views.components.mini_status import MiniStatusBar
 from src.views.components.pdf_viewer import PdfViewer
 
@@ -196,7 +199,13 @@ class FormatViewDialog(QDialog):
 
             self._add_action_btn(row_idx, 3, "Ver", self._open_file, enabled=bool(item.get("ruta")))
             self._add_action_btn(row_idx, 4, "Formatear", self._format_file)
-            self._add_action_btn(row_idx, 5, "Reemplazar", self._replace_file)
+            self._add_action_btn(
+                row_idx,
+                5,
+                "Reemplazar",
+                self._replace_file,
+                is_green=item.get("reemplazado") == "S",
+            )
 
             status_widget = MiniStatusBar(self.files_table)
             status_widget.set_status(self._default_status(item, fmt))
@@ -227,13 +236,7 @@ class FormatViewDialog(QDialog):
 
         self._is_populating = False
 
-    def _add_action_btn(self, row: int, col: int, text: str, callback, enabled: bool = True,
-                        is_red: bool = False) -> None:
-        btn = QPushButton(text)
-        btn.setEnabled(enabled)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        # Estilos base con padding
+    def _button_style(self, variant: str = "default") -> str:
         base_style = """
             QPushButton {
                 border-radius: 4px;
@@ -247,8 +250,8 @@ class FormatViewDialog(QDialog):
             }
         """
 
-        if is_red:
-            style = base_style + """
+        variants = {
+            "red": """
                 QPushButton {
                     border: 1px solid #e57373;
                     background: #ffebee;
@@ -257,9 +260,18 @@ class FormatViewDialog(QDialog):
                 QPushButton:hover {
                     background-color: #ffcdd2;
                 }
-            """
-        else:
-            style = base_style + """
+            """,
+            "green": """
+                QPushButton {
+                    border: 1px solid #4caf50;
+                    background: #e8f5e9;
+                    color: #2e7d32;
+                }
+                QPushButton:hover {
+                    background-color: #c8e6c9;
+                }
+            """,
+            "default": """
                 QPushButton {
                     border: 1px solid #cbd5f5;
                     background: #e0edff;
@@ -268,9 +280,23 @@ class FormatViewDialog(QDialog):
                 QPushButton:hover {
                     background-color: #c7dcff;
                 }
-            """
+            """,
+        }
 
-        btn.setStyleSheet(style)
+        return base_style + variants.get(variant, variants["default"])
+
+    def _add_action_btn(self, row: int, col: int, text: str, callback, enabled: bool = True,
+                        is_red: bool = False, is_green: bool = False) -> None:
+        btn = QPushButton(text)
+        btn.setEnabled(enabled)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        variant = "default"
+        if is_red:
+            variant = "red"
+        elif is_green:
+            variant = "green"
+        btn.setStyleSheet(self._button_style(variant))
         btn.clicked.connect(lambda _, r=row: callback(r))
 
         wrapper = QWidget()
@@ -300,8 +326,56 @@ class FormatViewDialog(QDialog):
     def _format_file(self, _row: int) -> None:
         QMessageBox.information(self, "Formatear", "Acción de formateo pendiente de implementación.")
 
-    def _replace_file(self, _row: int) -> None:
-        QMessageBox.information(self, "Reemplazar", "Acción de reemplazo pendiente de implementación.")
+    def _replace_file(self, row: int) -> None:
+        if row >= self.files_table.rowCount():
+            return
+
+        item = self._row_items[row]
+        ruta = item.get("ruta")
+        if not ruta:
+            QMessageBox.warning(self, "Reemplazar", "No se encontró la ruta del archivo.")
+            return
+
+        selected, _ = QFileDialog.getOpenFileName(
+            self,
+            "Seleccionar archivo de reemplazo",
+            "",
+            "Todos los archivos (*.*)",
+        )
+        if not selected:
+            return
+
+        target_path = Path(self._resolve_path(str(ruta)))
+        try:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(selected, target_path)
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Reemplazar",
+                f"No se pudo reemplazar el archivo:\n{exc}",
+            )
+            return
+
+        item["reemplazado"] = "S"
+        self.modified = True
+
+        if self.project_id:
+            cambios = {ruta: {"reemplazado": "S"}}
+            if not actualizar_atributos_exeva(self.project_id, cambios):
+                QMessageBox.warning(
+                    self,
+                    "Reemplazar",
+                    "El archivo fue reemplazado, pero no se pudo actualizar el JSON.",
+                )
+
+        wrapper = self.files_table.cellWidget(row, 5)
+        if wrapper:
+            btn = wrapper.findChild(QPushButton)
+            if btn:
+                btn.setStyleSheet(self._button_style("green"))
+
+        QMessageBox.information(self, "Reemplazar", "El archivo fue reemplazado correctamente.")
 
     def _exclude_file(self, row: int) -> None:
         if row >= self.files_table.rowCount():
@@ -344,40 +418,10 @@ class FormatViewDialog(QDialog):
         if wrapper:
             btn = wrapper.findChild(QPushButton)
             if btn:
-                base_style = """
-                    QPushButton {
-                        border-radius: 4px;
-                        padding: 4px 8px;
-                        font-weight: 500;
-                    }
-                    QPushButton:disabled {
-                        background-color: #f0f0f0;
-                        color: #aaa;
-                        border: 1px solid #eee;
-                    }
-                """
                 if is_red_style:
-                    btn.setStyleSheet(base_style + """
-                        QPushButton {
-                            border: 1px solid #e57373;
-                            background: #ffebee;
-                            color: #c62828;
-                        }
-                        QPushButton:hover {
-                            background-color: #ffcdd2;
-                        }
-                    """)
+                    btn.setStyleSheet(self._button_style("red"))
                 else:
-                    btn.setStyleSheet(base_style + """
-                        QPushButton {
-                            border: 1px solid #cbd5f5;
-                            background: #e0edff;
-                            color: #1d4ed8;
-                        }
-                        QPushButton:hover {
-                            background-color: #c7dcff;
-                        }
-                    """)
+                    btn.setStyleSheet(self._button_style("default"))
 
         self.modified = True
 
@@ -400,25 +444,14 @@ class FormatViewDialog(QDialog):
                 if item.get("observacion"):
                     attrs["observacion"] = item["observacion"]
 
+                if item.get("reemplazado") == "S":
+                    attrs["reemplazado"] = "S"
+
                 if attrs:
                     cambios[ruta] = attrs
 
             if self.project_id and cambios:
-                success = False
-                try:
-                    from src.controllers.eval_format import actualizar_atributos_exeva
-                    success = actualizar_atributos_exeva(self.project_id, cambios)
-                except ImportError:
-                    try:
-                        from .eval_format import actualizar_atributos_exeva
-                        success = actualizar_atributos_exeva(self.project_id, cambios)
-                    except ImportError:
-                        try:
-                            from eval_format import actualizar_atributos_exeva
-                            success = actualizar_atributos_exeva(self.project_id, cambios)
-                        except ImportError:
-                            raise ImportError("No se pudo importar 'actualizar_atributos_exeva'.")
-
+                success = actualizar_atributos_exeva(self.project_id, cambios)
                 if not success:
                     QMessageBox.warning(self, "Advertencia",
                                         "No se pudieron guardar los cambios en el archivo JSON.")
@@ -432,7 +465,7 @@ class FormatViewDialog(QDialog):
 
     def _apply_changes(self) -> None:
         for original, edited in zip(self._source_files, self.display_files):
-            for key in ("excluir", "observacion"):
+            for key in ("excluir", "observacion", "reemplazado"):
                 if key in edited:
                     original[key] = edited.get(key)
                 else:
