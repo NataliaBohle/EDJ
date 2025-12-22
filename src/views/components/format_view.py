@@ -513,11 +513,21 @@ class FormatViewDialog(QDialog):
                             self._log_message(
                                 "❌ Error crítico: No se pudo importar 'actualizar_atributos_exeva'"
                             )
-                            raise ImportError("No se pudo importar 'actualizar_atributos_exeva'.")
+                            QMessageBox.critical(
+                                self,
+                                "Error",
+                                "No se pudo actualizar el JSON de EXEVA por un problema de importación.",
+                            )
+                            return
                 except Exception as e_internal:
                     self._log_message(f"❌ Error INTERNO en actualizar_atributos_exeva: {e_internal}")
                     traceback.print_exc()
-                    raise e_internal
+                    QMessageBox.critical(
+                        self,
+                        "Error de guardado",
+                        "Ocurrió un error al actualizar el JSON de EXEVA.",
+                    )
+                    return
 
                 if not success:
                     QMessageBox.warning(self, "Advertencia",
