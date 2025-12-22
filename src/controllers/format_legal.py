@@ -31,6 +31,9 @@ def _resolve_project_path(project_id: str | None, ruta: str) -> Path:
         return ruta_path.resolve()
     if project_id:
         base = Path(os.getcwd()) / "Ebook" / str(project_id)
+        parts = [p.lower() for p in ruta_path.parts]
+        if len(parts) >= 2 and parts[0] == "ebook" and parts[1] == str(project_id).lower():
+            return (Path(os.getcwd()) / ruta_path).resolve()
         return (base / ruta_path).resolve()
     return (Path(os.getcwd()) / ruta_path).resolve()
 
@@ -238,74 +241,83 @@ def convert_file_to_pdf(source_path: Path, output_dir: Path) -> Path | None:
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = _generar_nombre_unico(output_dir, source_path.with_suffix(".pdf").name)
 
-    if ext in PDF_EXTENSIONS:
-        if pdf2imgpdf(source_path, output_path):
-            return output_path
-        return None
-
-    if ext in IMG_EXTENSIONS:
-        img = Image.open(source_path)
-        img2pdf_auto(img, str(output_path))
-        return output_path if output_path.exists() else None
-
-    if ext in DOC_EXTENSIONS:
-        temp_doc_pdf = output_dir / f"{source_path.stem}.intermediate.pdf"
-        doc2pdf(source_path, temp_doc_pdf)
-        try:
-            if pdf2imgpdf(temp_doc_pdf, output_path):
+    try:
+        if ext in PDF_EXTENSIONS:
+            if pdf2imgpdf(source_path, output_path):
                 return output_path
-        finally:
-            if temp_doc_pdf.exists():
-                temp_doc_pdf.unlink()
-        return None
+            return None
 
-    if ext in PPT_EXTENSIONS:
-        temp_ppt_pdf = output_dir / f"{source_path.stem}.intermediate.pdf"
-        ppt2pdf(source_path, temp_ppt_pdf)
-        try:
-            if pdf2imgpdf(temp_ppt_pdf, output_path):
-                return output_path
-        finally:
-            if temp_ppt_pdf.exists():
-                temp_ppt_pdf.unlink()
+        if ext in IMG_EXTENSIONS:
+            img = Image.open(source_path)
+            img2pdf_auto(img, str(output_path))
+            return output_path if output_path.exists() else None
+
+        if ext in DOC_EXTENSIONS:
+            temp_doc_pdf = output_dir / f"{source_path.stem}.intermediate.pdf"
+            doc2pdf(source_path, temp_doc_pdf)
+            try:
+                if pdf2imgpdf(temp_doc_pdf, output_path):
+                    return output_path
+            finally:
+                if temp_doc_pdf.exists():
+                    temp_doc_pdf.unlink()
+            return None
+
+        if ext in PPT_EXTENSIONS:
+            temp_ppt_pdf = output_dir / f"{source_path.stem}.intermediate.pdf"
+            ppt2pdf(source_path, temp_ppt_pdf)
+            try:
+                if pdf2imgpdf(temp_ppt_pdf, output_path):
+                    return output_path
+            finally:
+                if temp_ppt_pdf.exists():
+                    temp_ppt_pdf.unlink()
+            return None
+    except Exception as exc:
+        print(f"⚠️ Error al convertir {source_path.name}: {exc}")
+        if output_path.exists():
+            output_path.unlink()
         return None
 
     return None
 
 
 def convert_exeva_item(project_id: str | None, item: dict) -> tuple[bool, str | None, str | None]:
-    ruta = item.get("ruta")
-    if not ruta:
-        return False, None, "Sin ruta para convertir."
-
-    source_path = _resolve_project_path(project_id, str(ruta))
-    if not source_path.exists():
-        return False, None, f"Archivo no encontrado: {source_path}"
-
-    ext = source_path.suffix.lower()
-    if ext not in CONVERTIBLE_EXTENSIONS:
-        return False, None, "Formato no convertible."
-
-    conv_value = item.get("conv")
-    if conv_value:
-        conv_path = _resolve_project_path(project_id, str(conv_value))
-        if conv_path.exists():
-            return True, str(conv_value), None
-
-    output_dir = _conv_dir(project_id)
-    output_path = convert_file_to_pdf(source_path, output_dir)
-    if not output_path:
-        return False, None, "Error al convertir."
-
     try:
-        base = Path(os.getcwd())
-        if project_id:
-            base = base / "Ebook" / str(project_id)
-        rel = output_path.resolve().relative_to(base.resolve())
-        conv_rel = rel.as_posix()
-    except Exception:
-        conv_rel = output_path.as_posix()
-    return True, conv_rel, None
+        ruta = item.get("ruta")
+        if not ruta:
+            return False, None, "Sin ruta para convertir."
+
+        source_path = _resolve_project_path(project_id, str(ruta))
+        if not source_path.exists():
+            return False, None, f"Archivo no encontrado: {source_path}"
+
+        ext = source_path.suffix.lower()
+        if ext not in CONVERTIBLE_EXTENSIONS:
+            return False, None, "Formato no convertible."
+
+        conv_value = item.get("conv")
+        if conv_value:
+            conv_path = _resolve_project_path(project_id, str(conv_value))
+            if conv_path.exists():
+                return True, str(conv_value), None
+
+        output_dir = _conv_dir(project_id)
+        output_path = convert_file_to_pdf(source_path, output_dir)
+        if not output_path:
+            return False, None, "Error al convertir."
+
+        try:
+            base = Path(os.getcwd())
+            if project_id:
+                base = base / "Ebook" / str(project_id)
+            rel = output_path.resolve().relative_to(base.resolve())
+            conv_rel = rel.as_posix()
+        except Exception:
+            conv_rel = output_path.as_posix()
+        return True, conv_rel, None
+    except Exception as exc:
+        return False, None, f"Error al convertir: {exc}"
 
 
 def _iter_items(obj: dict | list) -> Iterable[dict]:

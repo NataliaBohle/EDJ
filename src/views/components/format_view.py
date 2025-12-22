@@ -514,6 +514,10 @@ class FormatViewDialog(QDialog):
             return str(Path(ruta_text).resolve())
         if self.project_id:
             base = Path(os.getcwd()) / "Ebook" / str(self.project_id)
+            ruta_path = Path(ruta_text)
+            parts = [p.lower() for p in ruta_path.parts]
+            if len(parts) >= 2 and parts[0] == "ebook" and parts[1] == str(self.project_id).lower():
+                return str((Path(os.getcwd()) / ruta_path).resolve())
             return str((base / ruta_text).resolve())
         return str((Path(os.getcwd()) / ruta_text).resolve())
 
