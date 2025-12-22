@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QUrl
@@ -216,7 +217,7 @@ class FormatViewDialog(QDialog):
         if not ruta:
             return
         file_path = self._resolve_path(str(ruta))
-        if not file_path:
+        if not file_path or not Path(file_path).exists():
             QMessageBox.warning(self, "Archivo no encontrado", "No se encontró el archivo.")
             return
         if file_path.lower().endswith(".pdf"):
@@ -247,13 +248,13 @@ class FormatViewDialog(QDialog):
         self.modified = True
 
     def _resolve_path(self, ruta: str) -> str:
-        ruta_text = str(ruta)
-        if Path(ruta_text).is_absolute():
+        ruta_text = str(ruta).replace("/", os.sep).replace("\\", os.sep)
+        if os.path.isabs(ruta_text):
             return str(Path(ruta_text).resolve())
         if self.project_id:
-            base = Path.cwd() / "Ebook" / str(self.project_id)
+            base = Path(os.getcwd()) / "Ebook" / str(self.project_id) / "EXEVA"
             return str((base / ruta_text).resolve())
-        return str((Path.cwd() / ruta_text).resolve())
+        return str((Path(os.getcwd()) / ruta_text).resolve())
 
     def _format_code(self, code: str | None) -> str:
         if not code:
