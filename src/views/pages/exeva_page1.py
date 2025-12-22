@@ -516,7 +516,7 @@ class Exeva1Page(QWidget):
         self._update_global_status_from_rows()
 
     def _derive_doc_status(self, doc_data: dict) -> str:
-        has_error = self._doc_has_error_links(doc_data)
+        has_error = self._doc_has_error_links(doc_data) or self._doc_has_download_error(doc_data)
         has_links = self._doc_has_links(doc_data)
         formato = (doc_data.get("formato") or "").strip().lower()
         current = (doc_data.get("estado_validacion") or "").strip().lower()
@@ -548,8 +548,11 @@ class Exeva1Page(QWidget):
                 return True
         return False
 
+    def _doc_has_download_error(self, doc_data: dict) -> bool:
+        return bool(doc_data.get("download_error"))
+
     def _on_row_status_changed(self, doc_data: dict, widget: MiniStatusBar, status: str) -> None:
-        if self._doc_has_error_links(doc_data):
+        if self._doc_has_error_links(doc_data) or self._doc_has_download_error(doc_data):
             widget.set_status("error")
             doc_data["estado_validacion"] = "error"
         else:

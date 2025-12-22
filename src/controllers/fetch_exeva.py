@@ -369,6 +369,7 @@ def _process_doc(d: dict, base_dir: Path, project_id: str, log: Callable | None,
 
     # 5. Guardar ruta
     if ok:
+        d.pop("download_error", None)
         try:
             rel = saved_path.resolve().relative_to(base_dir.resolve())
         except Exception:
@@ -382,6 +383,7 @@ def _process_doc(d: dict, base_dir: Path, project_id: str, log: Callable | None,
         return True
 
     _log(log, f"[Worker] Falló: {titulo}")
+    d["download_error"] = True
     return False
 
 
