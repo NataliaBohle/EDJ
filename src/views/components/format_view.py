@@ -330,6 +330,7 @@ class FormatViewDialog(QDialog):
         format_item = self.files_table.item(_row, 2)
         if format_item:
             format_item.setText(str(item.get("formato") or self._infer_format(item)))
+        self._refresh_format_button(_row, item)
 
         view_wrapper = self.files_table.cellWidget(_row, 3)
         if view_wrapper:
@@ -444,7 +445,7 @@ class FormatViewDialog(QDialog):
         if os.path.isabs(ruta_text):
             return str(Path(ruta_text).resolve())
         if self.project_id:
-            base = Path(os.getcwd()) / "Ebook" / str(self.project_id) / "EXEVA"
+            base = Path(os.getcwd()) / "Ebook" / str(self.project_id)
             return str((base / ruta_text).resolve())
         return str((Path(os.getcwd()) / ruta_text).resolve())
 
@@ -571,6 +572,8 @@ class FormatViewDialog(QDialog):
             return
         item_data = item or self._row_items[row]
         current_fmt = fmt or item_data.get("formato") or self._infer_format(item_data)
+        fmt_lower = (current_fmt or "").strip().lower()
+        is_doc_digital = fmt_lower == "doc digital"
         is_excluded = self._should_exclude_red(item_data, current_fmt)
         wrapper = self.files_table.cellWidget(row, 4)
         if not wrapper:
@@ -578,7 +581,16 @@ class FormatViewDialog(QDialog):
         btn = wrapper.findChild(QPushButton)
         if not btn:
             return
-        btn.setEnabled(not is_excluded)
+        if is_doc_digital:
+            self._set_action_variant(btn, "success")
+            btn.setProperty("formatLocked", "true")
+            btn.setEnabled(False)
+        else:
+            self._set_action_variant(btn, "primary")
+            btn.setProperty("formatLocked", False)
+            btn.setEnabled(not is_excluded)
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
 
     def _infer_format(self, item: dict) -> str:
         candidates = [

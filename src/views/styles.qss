@@ -525,3 +525,9 @@ QPushButton#FormatViewActionButton[variant="danger"]:disabled {
     color: #aaa;
     border: 1px solid #eee;
 }
+
+QPushButton#FormatViewActionButton[formatLocked="true"]:disabled {
+    background-color: #e8f5e9;
+    color: #2e7d32;
+    border: 1px solid #81c784;
+}
