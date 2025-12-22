@@ -1,4 +1,4 @@
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, pyqtSlot
 from functools import partial
 
 from PyQt6.QtWidgets import (
@@ -17,7 +17,7 @@ from src.views.components.links_review import LinksReviewDialog
 from src.views.components.mini_status import MiniStatusBar
 
 # Controladores y Modelos de antgen
-from src.controllers.fetch_exeva import FetchExevaController
+from src.controllers.fetch_exeva import FetchExevaController, download_exeva_document
 from src.controllers.fetch_anexos import FetchAnexosController
 from src.controllers.down_anexos import DownAnexosController
 from src.models.project_data_manager import ProjectDataManager
@@ -34,6 +34,8 @@ class Exeva1Page(QWidget):
         self.is_loading = False
         self.exeva_payload = {}
         self.documentos = []
+        self.retry_thread: QThread | None = None
+        self.retry_worker: "_RetryDownloadWorker | None" = None
 
         # 1. Inicializar Lógica de Negocio (Controladores y Modelos)
         self._init_controllers()
@@ -163,6 +165,7 @@ class Exeva1Page(QWidget):
                 ("vinculados_detectados", "Vinculados"),
                 ("ver_anexos", "Ver anexos"),
                 ("ver_doc", "Ver doc"),
+                ("reintentar", "Reintentar"),
                 ("estado_doc", "Estado"),
             ],
             parent=self.content_widget,
@@ -181,6 +184,7 @@ class Exeva1Page(QWidget):
             "vinculados_detectados",
             "ver_anexos",
             "ver_doc",
+            "reintentar",
             "estado_doc",
         }
         for idx, (key, _label) in enumerate(self.results_table.columns):
@@ -358,6 +362,7 @@ class Exeva1Page(QWidget):
                 "vinculados_detectados": str(len(doc.get("vinculados_detectados") or [])),
                 "ver_anexos": "",
                 "ver_doc": "",
+                "reintentar": "",
                 "estado_doc": "",
             }
             for doc in documentos
@@ -376,6 +381,17 @@ class Exeva1Page(QWidget):
                     button.setObjectName("BtnActionSecondary")
                     button.clicked.connect(partial(self._open_pdf_viewer, doc))
                     self.results_table.table.setCellWidget(row_idx, ver_col, button)
+            retry_col = next(
+                (idx for idx, (key, _label) in enumerate(self.results_table.columns) if key == "reintentar"),
+                None,
+            )
+            if retry_col is not None:
+                for row_idx, doc in enumerate(documentos):
+                    if not self._doc_has_file(doc):
+                        button = QPushButton("Reintentar", self.results_table.table)
+                        button.setObjectName("BtnActionSecondary")
+                        button.clicked.connect(partial(self._on_retry_download_clicked, doc))
+                        self.results_table.table.setCellWidget(row_idx, retry_col, button)
             estado_col = next(
                 (idx for idx, (key, _label) in enumerate(self.results_table.columns) if key == "estado_doc"),
                 None,
@@ -548,6 +564,10 @@ class Exeva1Page(QWidget):
                 return True
         return False
 
+    def _doc_has_file(self, doc_data: dict) -> bool:
+        ruta = (doc_data.get("ruta") or "").strip()
+        return bool(ruta)
+
     def _doc_has_download_error(self, doc_data: dict) -> bool:
         return bool(doc_data.get("download_error"))
 
@@ -591,3 +611,74 @@ class Exeva1Page(QWidget):
         # O simplemente llamamos a _set_results_table completo si no es costoso:
         # self._set_results_table( [toda la lista de docs] ) -> esto requiere tener la lista completa a mano.
         pass
+
+    def _on_retry_download_clicked(self, doc_data: dict) -> None:
+        if not self.current_project_id:
+            return
+        if self.retry_thread and self.retry_thread.isRunning():
+            self.log_requested.emit("⚠️ Ya hay una descarga en curso.")
+            return
+
+        self.pbar.setVisible(True)
+        self.pbar.setRange(0, 0)
+        self.retry_thread = QThread()
+        self.retry_worker = _RetryDownloadWorker(self.current_project_id, doc_data)
+        self.retry_worker.moveToThread(self.retry_thread)
+        self.retry_thread.started.connect(self.retry_worker.run)
+        self.retry_worker.log_signal.connect(self.log_requested.emit)
+        self.retry_worker.finished.connect(self._on_retry_download_finished)
+        self.retry_worker.finished.connect(self.retry_thread.quit)
+        self.retry_worker.finished.connect(self.retry_worker.deleteLater)
+        self.retry_thread.finished.connect(self.retry_thread.deleteLater)
+        self.retry_thread.finished.connect(self._reset_retry_thread)
+        self.retry_thread.start()
+
+    def _reset_retry_thread(self) -> None:
+        self.retry_thread = None
+        self.retry_worker = None
+
+    def _on_retry_download_finished(self, success: bool, doc_data: dict) -> None:
+        self.pbar.setVisible(False)
+        self.pbar.setRange(0, 100)
+        if success:
+            self.log_requested.emit("✅ Descarga reintentada correctamente.")
+            self._refresh_row_retry_button(doc_data)
+        else:
+            self.log_requested.emit("⚠️ No se pudo reintentar la descarga.")
+        self._refresh_row_status(doc_data)
+        self._persist_exeva_payload()
+
+    def _refresh_row_retry_button(self, doc_data: dict) -> None:
+        table = self.results_table.table
+        retry_col = next(
+            (idx for idx, (key, _label) in enumerate(self.results_table.columns) if key == "reintentar"),
+            None,
+        )
+        col_n = next(
+            (idx for idx, (key, _label) in enumerate(self.results_table.columns) if key == "n"),
+            None,
+        )
+        if retry_col is None or col_n is None:
+            return
+        target_n = str(doc_data.get("n") or "")
+        for r in range(table.rowCount()):
+            item = table.item(r, col_n)
+            if item and item.text() == target_n:
+                if self._doc_has_file(doc_data):
+                    table.setCellWidget(r, retry_col, None)
+                break
+
+
+class _RetryDownloadWorker(QObject):
+    log_signal = pyqtSignal(str)
+    finished = pyqtSignal(bool, dict)
+
+    def __init__(self, project_id: str, doc_data: dict):
+        super().__init__()
+        self.project_id = project_id
+        self.doc_data = doc_data
+
+    @pyqtSlot()
+    def run(self) -> None:
+        success = download_exeva_document(self.project_id, self.doc_data, log=self.log_signal.emit)
+        self.finished.emit(success, self.doc_data)

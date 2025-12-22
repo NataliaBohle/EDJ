@@ -387,6 +387,17 @@ def _process_doc(d: dict, base_dir: Path, project_id: str, log: Callable | None,
     return False
 
 
+def download_exeva_document(
+    project_id: str,
+    document: dict,
+    log: Callable[[str], None] | None = None,
+    overwrite: bool = True,
+) -> bool:
+    base_dir = Path(os.getcwd()) / "Ebook" / project_id
+    base_dir.mkdir(parents=True, exist_ok=True)
+    return _process_doc(document, base_dir, project_id, log=log, overwrite=overwrite)
+
+
 def _download_documents(project_id: str, exeva_data: dict, log: Callable[[str], None] | None = None) -> None:
     documentos = exeva_data.get("EXEVA", {}).get("documentos", []) if isinstance(exeva_data, dict) else []
     total = len(documentos)
