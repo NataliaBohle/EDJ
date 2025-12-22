@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QWidget,
     QMessageBox,
+    QFileDialog,
     QSizePolicy,
 )
 from PyQt6.QtGui import QDesktopServices
@@ -301,7 +302,52 @@ class FormatViewDialog(QDialog):
         QMessageBox.information(self, "Formatear", "Acción de formateo pendiente de implementación.")
 
     def _replace_file(self, _row: int) -> None:
-        QMessageBox.information(self, "Reemplazar", "Acción de reemplazo pendiente de implementación.")
+        if _row >= len(self.display_files):
+            return
+        item = self.display_files[_row]
+        ruta_actual = item.get("ruta")
+        initial_dir = ""
+        if ruta_actual:
+            resolved = self._resolve_path(str(ruta_actual))
+            if resolved:
+                initial_dir = str(Path(resolved).parent)
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Seleccionar archivo de reemplazo",
+            initial_dir,
+            "Todos los archivos (*)",
+        )
+        if not filename:
+            return
+
+        nueva_ruta = self._normalize_replacement_path(filename)
+        if ruta_actual and "archivo_original" not in item:
+            item["archivo_original"] = ruta_actual
+
+        if nueva_ruta == ruta_actual:
+            return
+
+        item["ruta"] = nueva_ruta
+        item["archivo"] = Path(filename).name
+
+        fmt = self._format_from_value(nueva_ruta) or item.get("formato")
+        if fmt:
+            item["formato"] = fmt
+
+        name_item = self.files_table.item(_row, 1)
+        if name_item:
+            name_item.setText(self._format_name(item))
+        format_item = self.files_table.item(_row, 2)
+        if format_item:
+            format_item.setText(str(item.get("formato") or self._infer_format(item)))
+
+        view_wrapper = self.files_table.cellWidget(_row, 3)
+        if view_wrapper:
+            view_button = view_wrapper.findChild(QPushButton)
+            if view_button:
+                view_button.setEnabled(bool(item.get("ruta")))
+
+        self.modified = True
 
     def _exclude_file(self, row: int) -> None:
         if row >= self.files_table.rowCount():
@@ -432,10 +478,10 @@ class FormatViewDialog(QDialog):
 
     def _apply_changes(self) -> None:
         for original, edited in zip(self._source_files, self.display_files):
-            for key in ("excluir", "observacion"):
+            for key in ("excluir", "observacion", "ruta", "archivo_original", "archivo", "formato"):
                 if key in edited:
                     original[key] = edited.get(key)
-                else:
+                elif key in {"excluir", "observacion"}:
                     original.pop(key, None)
 
     def _resolve_path(self, ruta: str) -> str:
@@ -446,6 +492,17 @@ class FormatViewDialog(QDialog):
             base = Path(os.getcwd()) / "Ebook" / str(self.project_id) / "EXEVA"
             return str((base / ruta_text).resolve())
         return str((Path(os.getcwd()) / ruta_text).resolve())
+
+    def _normalize_replacement_path(self, ruta: str) -> str:
+        ruta_path = Path(str(ruta)).expanduser().resolve()
+        if self.project_id:
+            exeva_base = Path(os.getcwd()) / "Ebook" / str(self.project_id) / "EXEVA"
+            try:
+                rel = ruta_path.relative_to(exeva_base.resolve())
+                return rel.as_posix()
+            except Exception:
+                pass
+        return ruta_path.as_posix()
 
     def _format_code(self, code: str | None) -> str:
         if not code:
