@@ -425,7 +425,7 @@ class Exeva3Page(QWidget):
     def _open_format_review(self, doc_data: dict) -> None:
         titulo = doc_data.get("titulo") or "Documento"
         files = self._collect_document_files(doc_data)
-        dialog = FormatViewDialog(titulo, files, self)
+        dialog = FormatViewDialog(titulo, files, self, self.current_project_id)
         dialog.exec()
 
     def _collect_document_files(self, doc_data: dict) -> list[dict]:
