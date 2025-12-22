@@ -197,7 +197,14 @@ class FormatViewDialog(QDialog):
 
             self._add_action_btn(row_idx, 3, "Ver", self._open_file, enabled=bool(item.get("ruta")))
             self._add_action_btn(row_idx, 4, "Formatear", self._format_file)
-            self._add_action_btn(row_idx, 5, "Reemplazar", self._replace_file)
+            has_replacement = bool(item.get("archivo_original"))
+            self._add_action_btn(
+                row_idx,
+                5,
+                "Reemplazar",
+                self._replace_file,
+                is_green=has_replacement,
+            )
 
             status_widget = MiniStatusBar(self.files_table)
             status_widget.set_status(self._default_status(item, fmt))
@@ -228,8 +235,16 @@ class FormatViewDialog(QDialog):
 
         self._is_populating = False
 
-    def _add_action_btn(self, row: int, col: int, text: str, callback, enabled: bool = True,
-                        is_red: bool = False) -> None:
+    def _add_action_btn(
+        self,
+        row: int,
+        col: int,
+        text: str,
+        callback,
+        enabled: bool = True,
+        is_red: bool = False,
+        is_green: bool = False,
+    ) -> None:
         btn = QPushButton(text)
         btn.setEnabled(enabled)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -257,6 +272,17 @@ class FormatViewDialog(QDialog):
                 }
                 QPushButton:hover {
                     background-color: #ffcdd2;
+                }
+            """
+        elif is_green:
+            style = base_style + """
+                QPushButton {
+                    border: 1px solid #81c784;
+                    background: #e8f5e9;
+                    color: #2e7d32;
+                }
+                QPushButton:hover {
+                    background-color: #c8e6c9;
                 }
             """
         else:
@@ -346,6 +372,33 @@ class FormatViewDialog(QDialog):
             view_button = view_wrapper.findChild(QPushButton)
             if view_button:
                 view_button.setEnabled(bool(item.get("ruta")))
+
+        replace_wrapper = self.files_table.cellWidget(_row, 5)
+        if replace_wrapper:
+            replace_button = replace_wrapper.findChild(QPushButton)
+            if replace_button:
+                base_style = """
+                    QPushButton {
+                        border-radius: 4px;
+                        padding: 4px 8px;
+                        font-weight: 500;
+                    }
+                    QPushButton:disabled {
+                        background-color: #f0f0f0;
+                        color: #aaa;
+                        border: 1px solid #eee;
+                    }
+                """
+                replace_button.setStyleSheet(base_style + """
+                    QPushButton {
+                        border: 1px solid #81c784;
+                        background: #e8f5e9;
+                        color: #2e7d32;
+                    }
+                    QPushButton:hover {
+                        background-color: #c8e6c9;
+                    }
+                """)
 
         self.modified = True
 
