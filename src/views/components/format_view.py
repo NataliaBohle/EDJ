@@ -247,13 +247,24 @@ class FormatViewDialog(QDialog):
         self.modified = True
 
     def _resolve_path(self, ruta: str) -> str:
-        ruta_text = str(ruta)
-        if Path(ruta_text).is_absolute():
-            return str(Path(ruta_text).resolve())
+        ruta_text = str(ruta).replace("\\", "/").strip()
+        path = Path(ruta_text)
+        if path.is_absolute():
+            resolved = str(path.resolve())
+            return resolved if Path(resolved).exists() else ""
+        candidates = []
         if self.project_id:
             base = Path.cwd() / "Ebook" / str(self.project_id)
-            return str((base / ruta_text).resolve())
-        return str((Path.cwd() / ruta_text).resolve())
+            candidates.append(base / ruta_text)
+            candidates.append(base / "EXEVA" / ruta_text)
+            if ruta_text.startswith("EXEVA/"):
+                candidates.append(base / ruta_text.split("EXEVA/", 1)[-1])
+        candidates.append(Path.cwd() / ruta_text)
+        for candidate in candidates:
+            resolved = candidate.resolve()
+            if resolved.exists():
+                return str(resolved)
+        return ""
 
     def _format_code(self, code: str | None) -> str:
         if not code:
