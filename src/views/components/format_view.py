@@ -42,7 +42,8 @@ class FormatViewDialog(QDialog):
         self.resize(1100, 650)
 
         self.files = list(files)
-        self.display_files = [item for item in self.files if isinstance(item, dict)]
+        self._source_files = [item for item in self.files if isinstance(item, dict)]
+        self.display_files = [dict(item) for item in self._source_files]
         self.project_id = project_id
         self.modified = False
         self._row_items: list[dict] = []
@@ -260,7 +261,16 @@ class FormatViewDialog(QDialog):
         self.modified = True
 
     def _save_and_close(self) -> None:
+        self._apply_changes()
         self.accept()
+
+    def _apply_changes(self) -> None:
+        for original, edited in zip(self._source_files, self.display_files):
+            for key in ("excluir", "observacion"):
+                if key in edited:
+                    original[key] = edited.get(key)
+                else:
+                    original.pop(key, None)
 
     def _resolve_path(self, ruta: str) -> str:
         ruta_text = str(ruta).replace("/", os.sep).replace("\\", os.sep)
