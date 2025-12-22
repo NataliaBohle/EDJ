@@ -440,3 +440,80 @@ QSplitter::handle:hover {
 #FieldRowRichButton:hover {
     background-color: #ffffff;
 }
+
+/* --- FORMAT VIEW DIALOG --- */
+#FormatViewInfoLabel {
+    color: #555;
+    margin-bottom: 0px;
+}
+
+#FormatViewPlaceholder {
+    color: #777;
+    margin-top: 0px;
+}
+
+QTableWidget#FormatViewFilesTable {
+    background-color: #fff;
+    border: 1px solid #ddd;
+    outline: none;
+}
+
+QTableWidget#FormatViewFilesTable::item {
+    border-bottom: 1px solid #f0f0f0;
+    padding: 0px 5px;
+}
+
+QTableWidget#FormatViewFilesTable::item:selected {
+    background-color: #e3f2fd;
+    color: #000;
+}
+
+QTableWidget#FormatViewFilesTable QHeaderView::section {
+    background-color: #f8f9fa;
+    padding: 0px;
+    border: none;
+    font-weight: bold;
+    color: #555;
+}
+
+QPushButton#FormatViewActionButton {
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-weight: 500;
+}
+
+QPushButton#FormatViewActionButton:disabled {
+    background-color: #f0f0f0;
+    color: #aaa;
+    border: 1px solid #eee;
+}
+
+QPushButton#FormatViewActionButton[variant="primary"] {
+    border: 1px solid #cbd5f5;
+    background: #e0edff;
+    color: #1d4ed8;
+}
+
+QPushButton#FormatViewActionButton[variant="primary"]:hover {
+    background-color: #c7dcff;
+}
+
+QPushButton#FormatViewActionButton[variant="success"] {
+    border: 1px solid #81c784;
+    background: #e8f5e9;
+    color: #2e7d32;
+}
+
+QPushButton#FormatViewActionButton[variant="success"]:hover {
+    background-color: #c8e6c9;
+}
+
+QPushButton#FormatViewActionButton[variant="danger"] {
+    border: 1px solid #e57373;
+    background: #ffebee;
+    color: #c62828;
+}
+
+QPushButton#FormatViewActionButton[variant="danger"]:hover {
+    background-color: #ffcdd2;
+}

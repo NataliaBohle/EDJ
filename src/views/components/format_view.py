@@ -58,11 +58,12 @@ class FormatViewDialog(QDialog):
         layout = QVBoxLayout(self)
 
         lbl_info = QLabel("Resumen de formatos detectados para este documento.")
-        lbl_info.setStyleSheet("color: #555; margin-bottom: 0px;")
+        lbl_info.setObjectName("FormatViewInfoLabel")
         layout.addWidget(lbl_info)
 
         # --- Summary Table ---
         self.summary_table = QTableWidget()
+        self.summary_table.setObjectName("FormatViewSummaryTable")
         self.summary_table.setRowCount(1)
         self.summary_table.setColumnCount(len(self.SUMMARY_COLUMNS))
         self.summary_table.setHorizontalHeaderLabels(self.SUMMARY_COLUMNS)
@@ -81,6 +82,7 @@ class FormatViewDialog(QDialog):
 
         # --- Files Table ---
         self.files_table = QTableWidget()
+        self.files_table.setObjectName("FormatViewFilesTable")
         self.files_table.setColumnCount(9)
         self.files_table.setHorizontalHeaderLabels(
             [
@@ -105,12 +107,6 @@ class FormatViewDialog(QDialog):
         self.files_table.verticalHeader().setDefaultSectionSize(48)
         self.files_table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
 
-        self.files_table.setStyleSheet(
-            "QTableWidget { background-color: #fff; border: 1px solid #ddd; outline: none; }"
-            "QTableWidget::item { border-bottom: 1px solid #f0f0f0; padding: 0px 5px; }"
-            "QTableWidget::item:selected { background-color: #e3f2fd; color: #000; }"
-            "QHeaderView::section { background-color: #f8f9fa; padding: 0px; border: none; font-weight: bold; color: #555; }"
-        )
         self.files_table.itemChanged.connect(self._on_item_changed)
 
         files_header = self.files_table.horizontalHeader()
@@ -152,6 +148,7 @@ class FormatViewDialog(QDialog):
         actions_layout = QHBoxLayout()
         actions_layout.addStretch(1)
         self.save_button = QPushButton("Guardar cambios")
+        self.save_button.setObjectName("FormatViewSaveButton")
         self.save_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.save_button.setFixedHeight(32)
         self.save_button.clicked.connect(self._save_and_close)
@@ -162,7 +159,7 @@ class FormatViewDialog(QDialog):
             "El visor de formatos se completará en la siguiente etapa."
         )
         self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.placeholder.setStyleSheet("color: #777; margin-top: 0px;")
+        self.placeholder.setObjectName("FormatViewPlaceholder")
         layout.addWidget(self.placeholder)
 
         self._populate_summary()
@@ -257,55 +254,13 @@ class FormatViewDialog(QDialog):
         btn.setEnabled(enabled)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Estilos base con padding
-        base_style = """
-            QPushButton {
-                border-radius: 4px;
-                padding: 4px 8px;
-                font-weight: 500;
-            }
-            QPushButton:disabled {
-                background-color: #f0f0f0;
-                color: #aaa;
-                border: 1px solid #eee;
-            }
-        """
-
+        btn.setObjectName("FormatViewActionButton")
         if is_red:
-            style = base_style + """
-                QPushButton {
-                    border: 1px solid #e57373;
-                    background: #ffebee;
-                    color: #c62828;
-                }
-                QPushButton:hover {
-                    background-color: #ffcdd2;
-                }
-            """
+            self._set_action_variant(btn, "danger")
         elif is_green:
-            style = base_style + """
-                QPushButton {
-                    border: 1px solid #81c784;
-                    background: #e8f5e9;
-                    color: #2e7d32;
-                }
-                QPushButton:hover {
-                    background-color: #c8e6c9;
-                }
-            """
+            self._set_action_variant(btn, "success")
         else:
-            style = base_style + """
-                QPushButton {
-                    border: 1px solid #cbd5f5;
-                    background: #e0edff;
-                    color: #1d4ed8;
-                }
-                QPushButton:hover {
-                    background-color: #c7dcff;
-                }
-            """
-
-        btn.setStyleSheet(style)
+            self._set_action_variant(btn, "primary")
         btn.clicked.connect(lambda _, r=row: callback(r))
 
         wrapper = QWidget()
@@ -385,28 +340,7 @@ class FormatViewDialog(QDialog):
         if replace_wrapper:
             replace_button = replace_wrapper.findChild(QPushButton)
             if replace_button:
-                base_style = """
-                    QPushButton {
-                        border-radius: 4px;
-                        padding: 4px 8px;
-                        font-weight: 500;
-                    }
-                    QPushButton:disabled {
-                        background-color: #f0f0f0;
-                        color: #aaa;
-                        border: 1px solid #eee;
-                    }
-                """
-                replace_button.setStyleSheet(base_style + """
-                    QPushButton {
-                        border: 1px solid #81c784;
-                        background: #e8f5e9;
-                        color: #2e7d32;
-                    }
-                    QPushButton:hover {
-                        background-color: #c8e6c9;
-                    }
-                """)
+                self._set_action_variant(replace_button, "success")
 
         self.modified = True
 
@@ -615,40 +549,15 @@ class FormatViewDialog(QDialog):
         btn = wrapper.findChild(QPushButton)
         if not btn:
             return
-        base_style = """
-            QPushButton {
-                border-radius: 4px;
-                padding: 4px 8px;
-                font-weight: 500;
-            }
-            QPushButton:disabled {
-                background-color: #f0f0f0;
-                color: #aaa;
-                border: 1px solid #eee;
-            }
-        """
         if is_red_style:
-            btn.setStyleSheet(base_style + """
-                QPushButton {
-                    border: 1px solid #e57373;
-                    background: #ffebee;
-                    color: #c62828;
-                }
-                QPushButton:hover {
-                    background-color: #ffcdd2;
-                }
-            """)
+            self._set_action_variant(btn, "danger")
         else:
-            btn.setStyleSheet(base_style + """
-                QPushButton {
-                    border: 1px solid #cbd5f5;
-                    background: #e0edff;
-                    color: #1d4ed8;
-                }
-                QPushButton:hover {
-                    background-color: #c7dcff;
-                }
-            """)
+            self._set_action_variant(btn, "primary")
+
+    def _set_action_variant(self, btn: QPushButton, variant: str) -> None:
+        btn.setProperty("variant", variant)
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
 
     def _infer_format(self, item: dict) -> str:
         candidates = [
