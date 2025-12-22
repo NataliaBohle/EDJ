@@ -228,23 +228,49 @@ class Exeva3Page(QWidget):
         converted = 0
         errors = 0
 
+        self.log_requested.emit("⚙️ Iniciando formateo masivo...")
+
         for doc in self.documentos:
             if not isinstance(doc, dict):
                 continue
             has_success = False
             has_error = False
-            for item in self._collect_document_files(doc):
-                if not self._is_item_convertible(item):
-                    continue
-                total += 1
-                success, conv_path, _error = convert_exeva_item(self.current_project_id, item)
-                if success:
-                    if conv_path:
-                        item["conv"] = conv_path
-                    item["estado_formato"] = "edicion"
-                    has_success = True
-                    converted += 1
-                else:
+
+            files_to_process = self._collect_document_files(doc)
+
+            for item in files_to_process:
+                try:
+                    if not self._is_item_convertible(item):
+                        continue
+
+                    total += 1
+                    # Nota: Asegúrate que convert_exeva_item no imprima prints internamente si quieres silencio en consola
+                    success, conv_path, _error = convert_exeva_item(self.current_project_id, item)
+
+                    if success:
+                        if conv_path:
+                            item["conv"] = conv_path
+                        item["estado_formato"] = "edicion"
+                        has_success = True
+                        converted += 1
+                        # Opcional: Loguear éxito en la app también si quieres mucho detalle
+                        # self.log_requested.emit(f"✅ Convertido: {item.get('nombre')}")
+                    else:
+                        # CAMBIO AQUI: print -> self.log_requested.emit
+                        msg_err = f"⚠️ Error convirtiendo {item.get('nombre')}: {_error}"
+                        print(msg_err) # Mantener en consola por si acaso
+                        self.log_requested.emit(msg_err) # Enviar a la App
+
+                        item["estado_formato"] = "error"
+                        has_error = True
+                        errors += 1
+
+                except Exception as e:
+                    # CAMBIO AQUI: print -> self.log_requested.emit
+                    msg_exc = f"❌ Excepción en archivo {item.get('nombre')}: {e}"
+                    print(msg_exc)
+                    self.log_requested.emit(msg_exc)
+
                     item["estado_formato"] = "error"
                     has_error = True
                     errors += 1

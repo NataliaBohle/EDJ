@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import json
+import traceback
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QUrl
@@ -316,37 +317,50 @@ class FormatViewDialog(QDialog):
         viewer.exec()
 
     def _format_file(self, _row: int) -> None:
-        if _row >= len(self.display_files):
-            return
-        item = self.display_files[_row]
-        fmt = item.get("formato") or self._infer_format(item)
-        if not self._is_convertible(item, fmt):
-            QMessageBox.warning(self, "Formatear", "El archivo seleccionado no es convertible.")
-            return
-        success, conv_path, error = convert_exeva_item(self.project_id, item)
-        if success:
-            if conv_path:
-                item["conv"] = conv_path
+        try:
+            if _row >= len(self.display_files):
+                return
+            item = self.display_files[_row]
+
+            # --- Validación extra de ruta antes de intentar nada ---
+            ruta = item.get("ruta")
+            if not ruta:
+                QMessageBox.warning(self, "Error", "El archivo no tiene ruta asignada.")
+                return
+
+            fmt = item.get("formato") or self._infer_format(item)
+            if not self._is_convertible(item, fmt):
+                QMessageBox.warning(self, "Formatear", "El archivo seleccionado no es convertible.")
+                return
+
+            # Llamada al controlador
+            success, conv_path, error = convert_exeva_item(self.project_id, item)
+
+            if success:
+                if conv_path:
+                    item["conv"] = conv_path
+                    if _row < len(self._source_files):
+                        self._source_files[_row]["conv"] = conv_path
+                item["estado_formato"] = "edicion"
                 if _row < len(self._source_files):
-                    self._source_files[_row]["conv"] = conv_path
-            item["estado_formato"] = "edicion"
-            if _row < len(self._source_files):
-                self._source_files[_row]["estado_formato"] = "edicion"
-            self._set_row_status(_row, "edicion")
-            self._refresh_converted_button(_row, item)
-            self._update_document_status("edicion")
-            self.modified = True
-        else:
-            item["estado_formato"] = "error"
-            if _row < len(self._source_files):
-                self._source_files[_row]["estado_formato"] = "error"
-            self._set_row_status(_row, "error")
-            self._update_document_status("error")
-            self.modified = True
-            if error:
-                QMessageBox.warning(self, "Formatear", error)
+                    self._source_files[_row]["estado_formato"] = "edicion"
+                self._set_row_status(_row, "edicion")
+                self._refresh_converted_button(_row, item)
+                self._update_document_status("edicion")
+                self.modified = True
             else:
-                QMessageBox.warning(self, "Formatear", "No se pudo convertir el archivo.")
+                # Manejo de error sin crash
+                item["estado_formato"] = "error"
+                if _row < len(self._source_files):
+                    self._source_files[_row]["estado_formato"] = "error"
+                self._set_row_status(_row, "error")
+                self._update_document_status("error")
+                self.modified = True
+                msg = error if error else "Error desconocido al convertir."
+                QMessageBox.warning(self, "Error al Formatear", msg)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error Crítico", f"Ocurrió un error inesperado:\n{str(e)}")
 
     def _replace_file(self, _row: int) -> None:
         if _row >= len(self.display_files):
@@ -444,6 +458,7 @@ class FormatViewDialog(QDialog):
 
     def _save_and_close(self) -> None:
         try:
+            print("💾 Iniciando guardado de cambios...") # Log consola
             self._apply_changes()
 
             cambios = {}
@@ -453,6 +468,7 @@ class FormatViewDialog(QDialog):
                     continue
 
                 attrs = {}
+                # Lógica para detectar cambios
                 if item.get("excluir") == "S":
                     attrs["excluir"] = "S"
                 elif "excluir" in item and item.get("excluir") != "S":
@@ -466,10 +482,12 @@ class FormatViewDialog(QDialog):
 
             if self.project_id and cambios:
                 success = False
+                # Bloque de importación protegido
                 try:
                     from src.controllers.eval_format import actualizar_atributos_exeva
                     success = actualizar_atributos_exeva(self.project_id, cambios)
                 except ImportError:
+                    # Intentos de fallback de importación
                     try:
                         from .eval_format import actualizar_atributos_exeva
                         success = actualizar_atributos_exeva(self.project_id, cambios)
@@ -478,16 +496,25 @@ class FormatViewDialog(QDialog):
                             from eval_format import actualizar_atributos_exeva
                             success = actualizar_atributos_exeva(self.project_id, cambios)
                         except ImportError:
+                            print("❌ Error crítico: No se pudo importar 'actualizar_atributos_exeva'")
                             raise ImportError("No se pudo importar 'actualizar_atributos_exeva'.")
+                except Exception as e_internal:
+                    print(f"❌ Error INTERNO en actualizar_atributos_exeva: {e_internal}")
+                    traceback.print_exc()
+                    raise e_internal
 
                 if not success:
                     QMessageBox.warning(self, "Advertencia",
                                         "No se pudieron guardar los cambios en el archivo JSON.")
                     return
 
+            print("✅ Guardado exitoso, cerrando diálogo.")
             self.accept()
 
         except Exception as e:
+            print("🔥 CRASH DETECTADO EN SAVE_AND_CLOSE 🔥")
+            print(f"Error: {e}")
+            traceback.print_exc()
             QMessageBox.critical(self, "Error de Guardado",
                                  f"Ocurrió un error crítico al intentar guardar:\n{str(e)}")
 
@@ -509,17 +536,30 @@ class FormatViewDialog(QDialog):
                     original.pop(key, None)
 
     def _resolve_path(self, ruta: str) -> str:
+        if not ruta:
+            return ""
+
         ruta_text = str(ruta).replace("/", os.sep).replace("\\", os.sep)
-        if os.path.isabs(ruta_text):
-            return str(Path(ruta_text).resolve())
+        ruta_path = Path(ruta_text)
+
+        if ruta_path.is_absolute():
+            return str(ruta_path.resolve())
+
+        base = Path(os.getcwd())
         if self.project_id:
-            base = Path(os.getcwd()) / "Ebook" / str(self.project_id)
-            ruta_path = Path(ruta_text)
-            parts = [p.lower() for p in ruta_path.parts]
-            if len(parts) >= 2 and parts[0] == "ebook" and parts[1] == str(self.project_id).lower():
-                return str((Path(os.getcwd()) / ruta_path).resolve())
-            return str((base / ruta_text).resolve())
-        return str((Path(os.getcwd()) / ruta_text).resolve())
+            base = base / "Ebook" / str(self.project_id)
+
+        # Lógica de doble comprobación
+        path_directo = (base / ruta_path).resolve()
+        if path_directo.exists():
+            return str(path_directo)
+
+        if "EXEVA" not in ruta_path.parts:
+            path_con_exeva = (base / "EXEVA" / ruta_path).resolve()
+            if path_con_exeva.exists():
+                return str(path_con_exeva)
+
+        return str(path_directo)
 
     def _normalize_replacement_path(self, ruta: str) -> str:
         ruta_path = Path(str(ruta)).expanduser().resolve()

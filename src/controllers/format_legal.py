@@ -25,17 +25,34 @@ CONVERTIBLE_EXTENSIONS = DOC_EXTENSIONS | PPT_EXTENSIONS | IMG_EXTENSIONS | PDF_
 
 
 def _resolve_project_path(project_id: str | None, ruta: str) -> Path:
+    if not ruta:
+        return Path(".")
+
     ruta_text = str(ruta).replace("/", os.sep).replace("\\", os.sep)
     ruta_path = Path(ruta_text)
+
+    # Si es absoluta, retornarla
     if ruta_path.is_absolute():
         return ruta_path.resolve()
+
+    base = Path(os.getcwd())
     if project_id:
-        base = Path(os.getcwd()) / "Ebook" / str(project_id)
-        parts = [p.lower() for p in ruta_path.parts]
-        if len(parts) >= 2 and parts[0] == "ebook" and parts[1] == str(project_id).lower():
-            return (Path(os.getcwd()) / ruta_path).resolve()
-        return (base / ruta_path).resolve()
-    return (Path(os.getcwd()) / ruta_path).resolve()
+        base = base / "Ebook" / str(project_id)
+
+    # 1. Intento Directo (Funciona para rutas que ya traen "EXEVA/files/...")
+    path_directo = (base / ruta_path).resolve()
+    if path_directo.exists():
+        return path_directo
+
+    # 2. Intento agregando 'EXEVA' (Funciona para anexos que dicen "files/...")
+    # Verifica que no estemos duplicando 'EXEVA' si ya venía en la ruta
+    if "EXEVA" not in ruta_path.parts:
+        path_con_exeva = (base / "EXEVA" / ruta_path).resolve()
+        if path_con_exeva.exists():
+            return path_con_exeva
+
+    # 3. Si ninguno existe, retornamos el directo por defecto para que el error muestre esa ruta
+    return path_directo
 
 
 def _conv_dir(project_id: str | None) -> Path:
