@@ -42,6 +42,9 @@ class FormatViewDialog(QDialog):
         self.files = list(files)
         self.display_files = [item for item in self.files if isinstance(item, dict)]
         self.project_id = project_id
+        self.modified = False
+        self._row_items: list[dict] = []
+        self._is_populating = False
 
         layout = QVBoxLayout(self)
 
@@ -94,6 +97,7 @@ class FormatViewDialog(QDialog):
             "QTableWidget::item { border-bottom: 1px solid #f0f0f0; padding-left: 5px; }"
             "QHeaderView::section { background-color: #f8f9fa; padding: 4px; border: none; font-weight: bold; color: #555; }"
         )
+        self.files_table.itemChanged.connect(self._on_item_changed)
 
         files_header = self.files_table.horizontalHeader()
         files_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -133,9 +137,12 @@ class FormatViewDialog(QDialog):
             self.summary_table.setItem(0, col_idx, item)
 
     def _populate_files(self) -> None:
+        self._is_populating = True
+        self._row_items = []
         self.files_table.setRowCount(0)
         for row_idx, item in enumerate(self.display_files):
             self.files_table.insertRow(row_idx)
+            self._row_items.append(item)
 
             code = self._format_code(item.get("n"))
             name = self._format_name(item)
@@ -155,9 +162,21 @@ class FormatViewDialog(QDialog):
             self.files_table.setCellWidget(row_idx, 6, status_widget)
 
             self._add_action_btn(row_idx, 7, "Excluir", self._exclude_file)
-            observations = QTableWidgetItem(self._default_observation(item, fmt))
+            default_observation = self._default_observation(item, fmt)
+            existing_observation = item.get("observacion")
+            if not existing_observation and default_observation:
+                item["observacion"] = default_observation
+                self.modified = True
+            elif "observacion" not in item:
+                item["observacion"] = existing_observation or ""
+            had_excluir = "excluir" in item
+            item.setdefault("excluir", "N")
+            if not had_excluir:
+                self.modified = True
+            observations = QTableWidgetItem(item.get("observacion", default_observation))
             observations.setFlags(observations.flags() | Qt.ItemFlag.ItemIsEditable)
             self.files_table.setItem(row_idx, 8, observations)
+        self._is_populating = False
 
     def _add_action_btn(self, row: int, col: int, text: str, callback, enabled: bool = True) -> None:
         btn = QPushButton(text)
@@ -215,12 +234,17 @@ class FormatViewDialog(QDialog):
     def _exclude_file(self, row: int) -> None:
         if row >= self.files_table.rowCount():
             return
-        item = QTableWidgetItem(
+        item_data = self._row_items[row]
+        item_data["excluir"] = "S"
+        message = (
             'Este archivo no se puede presentar en este documento. '
             'Revise la carpeta "Excepciones".'
         )
-        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
-        self.files_table.setItem(row, 8, item)
+        item_data["observacion"] = message
+        table_item = QTableWidgetItem(message)
+        table_item.setFlags(table_item.flags() | Qt.ItemFlag.ItemIsEditable)
+        self.files_table.setItem(row, 8, table_item)
+        self.modified = True
 
     def _resolve_path(self, ruta: str) -> str:
         ruta_text = str(ruta)
@@ -253,7 +277,21 @@ class FormatViewDialog(QDialog):
 
     def _default_status(self, item: dict, fmt: str | None) -> str:
         fmt_lower = (fmt or "").strip().lower()
-        if fmt_lower in {"doc digital", "carpeta", "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz"}:
+        if fmt_lower in {
+            "doc digital",
+            "carpeta",
+            "zip",
+            "rar",
+            "7z",
+            "tar",
+            "gz",
+            "bz2",
+            "xz",
+            "tgz",
+            "tar.gz",
+            "tar.bz2",
+            "tar.xz",
+        }:
             return "verificado"
         return (item.get("estado_formato") or "detectado")
 
@@ -261,13 +299,22 @@ class FormatViewDialog(QDialog):
         fmt_lower = (fmt or "").strip().lower()
         if fmt_lower == "carpeta":
             return "Esta entrada corresponde a una carpeta. Se conserva para reflejar el orden de expediente"
-        if fmt_lower in {
-            "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz",
-            "xls", "xlsx", "csv", "parquet",
-            "shp", "shx", "dbf", "prj", "kml", "kmz", "geojson", "gml", "gpkg", "tif", "tiff",
-        }:
+        if fmt_lower == "doc digital":
+            return ""
+        category = self._categorize_format(fmt_lower)
+        if category in {"Comprimidos", "GEO", "XLS", "Otros"}:
             return 'Este archivo no se puede convertir a PDF. Revise la carpeta "Archivos no PDF".'
         return ""
+
+    def _on_item_changed(self, item: QTableWidgetItem) -> None:
+        if self._is_populating:
+            return
+        row = item.row()
+        if row >= len(self._row_items):
+            return
+        if item.column() == 8:
+            self._row_items[row]["observacion"] = item.text()
+            self.modified = True
 
     def _infer_format(self, item: dict) -> str:
         candidates = [

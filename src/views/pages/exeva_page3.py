@@ -427,6 +427,8 @@ class Exeva3Page(QWidget):
         files = self._collect_document_files(doc_data)
         dialog = FormatViewDialog(titulo, files, self, self.current_project_id)
         dialog.exec()
+        if dialog.modified:
+            self._persist_exeva_payload()
 
     def _collect_document_files(self, doc_data: dict) -> list[dict]:
         files: list[dict] = []
