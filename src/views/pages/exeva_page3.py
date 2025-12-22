@@ -432,9 +432,13 @@ class Exeva3Page(QWidget):
 
     def _collect_document_files(self, doc_data: dict) -> list[dict]:
         files: list[dict] = []
+        base_code = ""
+        next_index = 1
         if isinstance(doc_data, dict):
+            base_code = self._format_code_part(doc_data.get("n") or doc_data.get("num_doc"))
+            doc_data["codigo"] = base_code
             files.append(doc_data)
-            self._collect_tree_files(doc_data.get("descomprimidos"), files)
+            next_index = self._collect_tree_files(doc_data.get("descomprimidos"), files, base_code, next_index)
         for key in ("anexos_detectados", "vinculados_detectados"):
             links = doc_data.get(key) or []
             if not isinstance(links, list):
@@ -442,22 +446,58 @@ class Exeva3Page(QWidget):
             for link in links:
                 if not isinstance(link, dict):
                     continue
+                code = self._compose_code(base_code, next_index)
+                link["codigo"] = code
                 files.append(link)
-                self._collect_tree_files(link.get("descomprimidos"), files)
+                next_index += 1
+                next_index = self._collect_tree_files(link.get("descomprimidos"), files, code, next_index=1)
         return files
 
-    def _collect_tree_files(self, node: dict | list | None, files: list[dict]) -> None:
+    def _collect_tree_files(
+        self,
+        node: dict | list | None,
+        files: list[dict],
+        parent_code: str,
+        next_index: int = 1,
+    ) -> int:
         if isinstance(node, list):
             for item in node:
-                self._collect_tree_files(item, files)
-            return
+                next_index = self._collect_tree_item(item, files, parent_code, next_index)
+            return next_index
         if not isinstance(node, dict):
-            return
+            return next_index
+        return self._collect_tree_item(node, files, parent_code, next_index)
+
+    def _collect_tree_item(
+        self,
+        node: dict,
+        files: list[dict],
+        parent_code: str,
+        next_index: int,
+    ) -> int:
+        code = self._compose_code(parent_code, next_index)
+        node["codigo"] = code
         files.append(node)
+        next_index += 1
         contenido = node.get("contenido")
         if isinstance(contenido, list):
-            for child in contenido:
-                self._collect_tree_files(child, files)
+            self._collect_tree_files(contenido, files, code, next_index=1)
+        return next_index
+
+    def _format_code_part(self, value: str | None) -> str:
+        if not value:
+            return ""
+        parts = str(value).split(".")
+        cleaned = []
+        for part in parts:
+            stripped = part.lstrip("0")
+            cleaned.append(stripped if stripped else "0")
+        return ".".join(cleaned)
+
+    def _compose_code(self, parent_code: str, index: int) -> str:
+        if not parent_code:
+            return str(index)
+        return f"{parent_code}.{index}"
 
     def _derive_doc_status(self, doc_data: dict) -> str:
         has_links = self._doc_has_links(doc_data)
