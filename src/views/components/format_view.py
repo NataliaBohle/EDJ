@@ -97,6 +97,7 @@ class FormatViewDialog(QDialog):
         self.files_table.setShowGrid(False)
         self.files_table.setAlternatingRowColors(True)
         self.files_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.files_table.setSortingEnabled(False)
 
         # --- AJUSTE DE ALTURA DE FILAS ---
         self.files_table.verticalHeader().setDefaultSectionSize(48)
@@ -111,6 +112,8 @@ class FormatViewDialog(QDialog):
         self.files_table.itemChanged.connect(self._on_item_changed)
 
         files_header = self.files_table.horizontalHeader()
+        files_header.setSortIndicatorShown(True)
+        files_header.sectionClicked.connect(self._on_sort_requested)
 
         # --- TU CONFIGURACIÓN DE COLUMNAS ---
 
@@ -180,12 +183,13 @@ class FormatViewDialog(QDialog):
     def _populate_files(self) -> None:
         self._is_populating = True
         self._row_items = []
+        self.files_table.setSortingEnabled(False)
         self.files_table.setRowCount(0)
         for row_idx, item in enumerate(self.display_files):
             self.files_table.insertRow(row_idx)
             self._row_items.append(item)
 
-            code = self._format_code(item.get("n"))
+            code = self._format_code_from_item(item)
             name = self._format_name(item)
             fmt = item.get("formato") or self._infer_format(item)
 
@@ -308,6 +312,23 @@ class FormatViewDialog(QDialog):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(btn)
         self.files_table.setCellWidget(row, col, wrapper)
+
+    def _on_sort_requested(self, column: int) -> None:
+        if self._is_populating:
+            return
+        if column not in {1, 2}:
+            return
+        header = self.files_table.horizontalHeader()
+        if header.sortIndicatorSection() == column:
+            order = (
+                Qt.SortOrder.DescendingOrder
+                if header.sortIndicatorOrder() == Qt.SortOrder.AscendingOrder
+                else Qt.SortOrder.AscendingOrder
+            )
+        else:
+            order = Qt.SortOrder.AscendingOrder
+        header.setSortIndicator(column, order)
+        self.files_table.sortItems(column, order)
 
     def _open_file(self, row: int) -> None:
         item = self.display_files[row]
@@ -520,12 +541,20 @@ class FormatViewDialog(QDialog):
     def _format_code(self, code: str | None) -> str:
         if not code:
             return ""
-        parts = str(code).split(".")
-        cleaned = []
-        for part in parts:
-            stripped = part.lstrip("0")
-            cleaned.append(stripped if stripped else "0")
-        return ".".join(cleaned)
+        if isinstance(code, str) and "." in code:
+            parts = code.split(".")
+            cleaned = []
+            for part in parts:
+                stripped = part.lstrip("0")
+                cleaned.append(stripped if stripped else "0")
+            return ".".join(cleaned)
+        if isinstance(code, str) and code.isdigit():
+            return str(int(code)) if code else ""
+        return str(code)
+
+    def _format_code_from_item(self, item: dict) -> str:
+        code_value = item.get("codigo") or item.get("n")
+        return self._format_code(str(code_value)) if code_value else ""
 
     def _format_name(self, item: dict) -> str:
         for key in ("titulo", "nombre", "archivo"):
