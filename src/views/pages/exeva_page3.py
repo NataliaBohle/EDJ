@@ -22,7 +22,6 @@ from src.views.components.pdf_viewer import PdfViewer
 from src.views.components.mini_status import MiniStatusBar
 from src.views.components.format_view import FormatViewDialog
 from src.models.project_data_manager import ProjectDataManager
-from src.controllers.eval_format import EvalFormatController
 
 
 class Exeva3Page(QWidget):
@@ -44,10 +43,6 @@ class Exeva3Page(QWidget):
     def _init_controllers(self):
         self.data_manager = ProjectDataManager(self)
         self.data_manager.log_requested.connect(self.log_requested.emit)
-        self.eval_controller = EvalFormatController(self)
-        self.eval_controller.log_requested.connect(self.log_requested.emit)
-        self.eval_controller.eval_started.connect(self._on_eval_started)
-        self.eval_controller.eval_finished.connect(self._on_eval_finished)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -98,9 +93,6 @@ class Exeva3Page(QWidget):
         self.btn_back_step2 = self.command_bar.add_left_button(
             "Volver a Paso 2", object_name="BtnActionFolder"
         )
-        self.btn_eval_formato = self.command_bar.add_button(
-            "Evaluar Formato", object_name="BtnActionPrimary"
-        )
         self.btn_format_all = self.command_bar.add_button(
             "Formatear Todo", object_name="BtnActionPrimary"
         )
@@ -112,7 +104,6 @@ class Exeva3Page(QWidget):
         )
 
         self.btn_back_step2.clicked.connect(self._on_back_clicked)
-        self.btn_eval_formato.clicked.connect(self._on_eval_clicked)
         self.btn_continue_step4.clicked.connect(self._on_continue_clicked)
 
         layout.addWidget(self.command_bar)
@@ -220,10 +211,6 @@ class Exeva3Page(QWidget):
             global_status=new_status,
         )
 
-    def _on_eval_clicked(self):
-        if not self.current_project_id:
-            return
-        self.eval_controller.start_eval(self.current_project_id)
 
     def _on_back_clicked(self):
         if not self.current_project_id:
@@ -235,17 +222,6 @@ class Exeva3Page(QWidget):
             return
         self.continue_requested.emit(self.current_project_id)
 
-    def _on_eval_started(self) -> None:
-        self.btn_eval_formato.setEnabled(False)
-        self.log_requested.emit("⏳ Evaluando formatos del expediente...")
-
-    def _on_eval_finished(self, success: bool, _data: dict) -> None:
-        self.btn_eval_formato.setEnabled(True)
-        if success:
-            self._reload_exeva_data()
-            self.log_requested.emit("✅ Evaluación de formatos finalizada.")
-        else:
-            self.log_requested.emit("⚠️ No se pudo evaluar los formatos.")
 
     def _reload_exeva_data(self) -> None:
         if not self.current_project_id:
