@@ -230,6 +230,7 @@ class FormatViewDialog(QDialog):
             self.files_table.setItem(row_idx, 8, observations)
 
             # Botón Excluir
+            self._ensure_excluir_for_special(item, fmt)
             is_excluded = self._should_exclude_red(item, fmt)
             self._add_action_btn(row_idx, 7, "Excluir", self._exclude_file, is_red=is_excluded)
 
@@ -564,6 +565,7 @@ class FormatViewDialog(QDialog):
             return
         if item.column() == 8:
             self._row_items[row]["observacion"] = item.text()
+            self._ensure_excluir_for_special(self._row_items[row])
             self.modified = True
             self._refresh_exclude_button(row)
 
@@ -577,10 +579,20 @@ class FormatViewDialog(QDialog):
             or has_observacion
         )
 
+    def _ensure_excluir_for_special(self, item: dict, fmt: str | None = None) -> None:
+        current_fmt = fmt or item.get("formato") or self._infer_format(item)
+        category = self._categorize_format(current_fmt)
+        has_observacion = bool(item.get("observacion"))
+        if category in {"Carpetas", "Comprimidos"} or has_observacion:
+            if item.get("excluir") != "S":
+                item["excluir"] = "S"
+                self.modified = True
+
     def _refresh_exclude_button(self, row: int) -> None:
         if row >= len(self._row_items):
             return
         item_data = self._row_items[row]
+        self._ensure_excluir_for_special(item_data)
         is_red_style = self._should_exclude_red(item_data, item_data.get("formato"))
         wrapper = self.files_table.cellWidget(row, 7)
         if not wrapper:
