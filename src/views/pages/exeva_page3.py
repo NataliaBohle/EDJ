@@ -98,21 +98,14 @@ class Exeva3Page(QWidget):
         self.btn_back_step2 = self.command_bar.add_left_button(
             "Volver a Paso 2", object_name="BtnActionFolder"
         )
-        self.btn_eval_formato = self.command_bar.add_button(
-            "Evaluar Formato", object_name="BtnActionPrimary"
-        )
-        self.btn_format_all = self.command_bar.add_button(
-            "Formatear Todo", object_name="BtnActionPrimary"
-        )
         self.btn_format_edit = self.command_bar.add_button(
-            "Formatear solo en edición", object_name="BtnActionPrimary"
+            "Formatear", object_name="BtnActionPrimary"
         )
         self.btn_continue_step4 = self.command_bar.add_right_button(
             "Continuar a paso 4", object_name="BtnActionPrimary"
         )
 
         self.btn_back_step2.clicked.connect(self._on_back_clicked)
-        self.btn_eval_formato.clicked.connect(self._on_eval_clicked)
         self.btn_continue_step4.clicked.connect(self._on_continue_clicked)
 
         layout.addWidget(self.command_bar)
