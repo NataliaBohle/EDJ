@@ -16,6 +16,9 @@ class ProjectDataManager(QObject):
     def _get_json_path(self, project_id: str) -> str:
         return os.path.join(os.getcwd(), "Ebook", project_id, f"{project_id}_fetch.json")
 
+    def _get_exeva_json_path(self, project_id: str) -> str:
+        return os.path.join(os.getcwd(), "Ebook", project_id, "EXEVA", f"{project_id}_EXEVA.json")
+
     def load_data(self, project_id: str) -> dict:
         """Carga el JSON completo del proyecto."""
         path = self._get_json_path(project_id)
@@ -29,6 +32,30 @@ class ProjectDataManager(QObject):
         except Exception as e:
             self.log_requested.emit(f"❌ Error leyendo JSON: {e}")
             return {}
+
+    def load_exeva_data(self, project_id: str) -> dict:
+        """Carga el JSON específico de EXEVA si existe."""
+        path = self._get_exeva_json_path(project_id)
+        if not os.path.exists(path):
+            self.log_requested.emit(f"⚠️ Archivo EXEVA no encontrado: {path}")
+            return {}
+
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            self.log_requested.emit(f"❌ Error leyendo JSON de EXEVA: {e}")
+            return {}
+
+    def save_exeva_data(self, project_id: str, payload: dict) -> None:
+        """Guarda el JSON específico de EXEVA."""
+        path = self._get_exeva_json_path(project_id)
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            self.log_requested.emit(f"❌ Error guardando JSON de EXEVA: {e}")
 
     def save_antgen_field_data(self, project_id: str, field_data: dict):
         """Guarda un diccionario de valores (campos) dentro de ANTGEN_DATA."""
