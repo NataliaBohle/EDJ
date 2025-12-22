@@ -354,12 +354,16 @@ class FormatViewDialog(QDialog):
             return "PDF"
         if fmt_lower in {"doc", "docx", "rtf", "odt", "wpd"}:
             return "DOC"
-        if fmt_lower in {"xls", "xlsx", "csv", "parquet"}:
+        if fmt_lower in {"xls", "xlsx","xlsm", "csv", "parquet", "ods", "fods", "tsv", "dbf", "gsheet", "numbers"}:
             return "XLS"
+        if fmt_lower in {"ppt", "pptx", "odp", "key", "gslides", "sxi", "shw", "prz"}:
+            return "PPT"
         if fmt_lower in {"txt", "md", "log"}:
             return "TXT"
         if fmt_lower in {"shp", "shx", "dbf", "prj", "kml", "kmz", "geojson", "gml", "gpkg", "tif", "tiff"}:
             return "GEO"
+        if fmt_lower in {"html", "php", "bin"}:
+            return "WEB"
         if fmt_lower in {"zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz", "tar.gz", "tar.bz2", "tar.xz"}:
             return "Comprimidos"
         return "Otros"
