@@ -51,6 +51,8 @@ class Exeva1Page(QWidget):
         self.fetch_controller.log_requested.connect(self.log_requested.emit)
         self.fetch_controller.extraction_started.connect(self._on_extraction_started)
         self.fetch_controller.extraction_finished.connect(self._on_extraction_finished)
+        self.fetch_controller.retry_started.connect(self._on_retry_started)
+        self.fetch_controller.retry_finished.connect(self._on_retry_finished)
         self.fetch_anexos_controller = FetchAnexosController(self)
         self.fetch_anexos_controller.log_requested.connect(self.log_requested.emit)
         self.fetch_anexos_controller.detection_started.connect(self._on_anexos_detection_started)
@@ -163,6 +165,7 @@ class Exeva1Page(QWidget):
                 ("vinculados_detectados", "Vinculados"),
                 ("ver_anexos", "Ver anexos"),
                 ("ver_doc", "Ver doc"),
+                ("retry", "Retry"),
                 ("estado_doc", "Estado"),
             ],
             parent=self.content_widget,
@@ -181,6 +184,7 @@ class Exeva1Page(QWidget):
             "vinculados_detectados",
             "ver_anexos",
             "ver_doc",
+            "retry",
             "estado_doc",
         }
         for idx, (key, _label) in enumerate(self.results_table.columns):
@@ -344,6 +348,20 @@ class Exeva1Page(QWidget):
         else:
             self.log_requested.emit("⚠️ No se pudieron descargar anexos.")
 
+    def _on_retry_started(self) -> None:
+        self.pbar.setVisible(True)
+        self.pbar.setRange(0, 0)
+
+    def _on_retry_finished(self, success: bool, _doc_data: dict) -> None:
+        self.pbar.setVisible(False)
+        self.pbar.setRange(0, 100)
+        if success:
+            self.log_requested.emit("✅ Documento reintentado correctamente.")
+        else:
+            self.log_requested.emit("⚠️ No se pudo reintentar el documento.")
+        self._persist_exeva_payload()
+        self._set_results_table(self.documentos)
+
     def _set_results_table(self, documentos: list[dict]) -> None:
         self.documentos = documentos
         rows = [
@@ -358,6 +376,7 @@ class Exeva1Page(QWidget):
                 "vinculados_detectados": str(len(doc.get("vinculados_detectados") or [])),
                 "ver_anexos": "",
                 "ver_doc": "",
+                "retry": "",
                 "estado_doc": "",
             }
             for doc in documentos
@@ -376,6 +395,17 @@ class Exeva1Page(QWidget):
                     button.setObjectName("BtnActionSecondary")
                     button.clicked.connect(partial(self._open_pdf_viewer, doc))
                     self.results_table.table.setCellWidget(row_idx, ver_col, button)
+            retry_col = next(
+                (idx for idx, (key, _label) in enumerate(self.results_table.columns) if key == "retry"),
+                None,
+            )
+            if retry_col is not None:
+                for row_idx, doc in enumerate(documentos):
+                    if self._doc_needs_retry(doc):
+                        button = QPushButton("Reintentar", self.results_table.table)
+                        button.setObjectName("BtnActionSecondary")
+                        button.clicked.connect(partial(self._on_retry_doc_clicked, doc, row_idx))
+                        self.results_table.table.setCellWidget(row_idx, retry_col, button)
             estado_col = next(
                 (idx for idx, (key, _label) in enumerate(self.results_table.columns) if key == "estado_doc"),
                 None,
@@ -404,6 +434,20 @@ class Exeva1Page(QWidget):
                         self.results_table.table.setCellWidget(row_idx, anexos_col, button)
             self.results_table.table.resizeColumnsToContents()
             self._update_global_status_from_rows()
+
+    def _on_retry_doc_clicked(self, doc_data: dict, row_index: int) -> None:
+        if not self.current_project_id:
+            return
+        retry_col = next(
+            (idx for idx, (key, _label) in enumerate(self.results_table.columns) if key == "retry"),
+            None,
+        )
+        if retry_col is not None:
+            button = self.results_table.table.cellWidget(row_index, retry_col)
+            if isinstance(button, QPushButton):
+                button.setEnabled(False)
+                button.setText("Reintentando...")
+        self.fetch_controller.retry_download(self.current_project_id, doc_data)
 
     def _open_pdf_viewer(self, doc_data: dict) -> None:
         viewer = PdfViewer(doc_data, self, self.current_project_id)
@@ -516,7 +560,7 @@ class Exeva1Page(QWidget):
         self._update_global_status_from_rows()
 
     def _derive_doc_status(self, doc_data: dict) -> str:
-        has_error = self._doc_has_error_links(doc_data)
+        has_error = self._doc_has_error_links(doc_data) or self._doc_has_download_error(doc_data)
         has_links = self._doc_has_links(doc_data)
         formato = (doc_data.get("formato") or "").strip().lower()
         current = (doc_data.get("estado_validacion") or "").strip().lower()
@@ -547,6 +591,15 @@ class Exeva1Page(QWidget):
             if item.get("error"):
                 return True
         return False
+
+    def _doc_has_download_error(self, doc_data: dict) -> bool:
+        if doc_data.get("error_descarga"):
+            return True
+        url = doc_data.get("URL_documento") or doc_data.get("url")
+        return bool(url) and not doc_data.get("ruta")
+
+    def _doc_needs_retry(self, doc_data: dict) -> bool:
+        return bool(doc_data.get("error_descarga") or not doc_data.get("ruta"))
 
     def _on_row_status_changed(self, doc_data: dict, widget: MiniStatusBar, status: str) -> None:
         if self._doc_has_error_links(doc_data):

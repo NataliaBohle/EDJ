@@ -333,6 +333,7 @@ def _process_doc(d: dict, base_dir: Path, project_id: str, log: Callable | None,
     url = d.get("URL_documento") or d.get("url") or ""
 
     if not url:
+        d["error_descarga"] = True
         return False
 
     folder_name = _doc_folder_name(n)
@@ -379,9 +380,11 @@ def _process_doc(d: dict, base_dir: Path, project_id: str, log: Callable | None,
             clean_path = clean_path[1:]
 
         d["ruta"] = clean_path
+        d.pop("error_descarga", None)
         return True
 
     _log(log, f"[Worker] Falló: {titulo}")
+    d["error_descarga"] = True
     return False
 
 
@@ -529,9 +532,35 @@ class ExevaFetchWorker(QObject):
         self.finished_signal.emit(success, result_data)
 
 
+class SingleDocDownloadWorker(QObject):
+    log_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal(bool, dict)
+
+    def __init__(self, project_id: str, doc_data: dict):
+        super().__init__()
+        self.project_id = project_id
+        self.doc_data = doc_data
+
+    @pyqtSlot()
+    def run(self) -> None:
+        success = False
+        try:
+            base_dir = Path(os.getcwd()) / "Ebook" / self.project_id
+            success = _process_doc(self.doc_data, base_dir, self.project_id, self.log_signal.emit, overwrite=True)
+            if success:
+                self.log_signal.emit("✅ Reintento de descarga completado.")
+            else:
+                self.log_signal.emit("⚠️ Reintento de descarga fallido.")
+        except Exception as exc:
+            self.log_signal.emit(f"❌ Error inesperado durante reintento: {exc}")
+        self.finished_signal.emit(success, self.doc_data)
+
+
 class FetchExevaController(QObject):
     extraction_started = pyqtSignal()
     extraction_finished = pyqtSignal(bool, dict)
+    retry_started = pyqtSignal()
+    retry_finished = pyqtSignal(bool, dict)
     log_requested = pyqtSignal(str)
 
     def __init__(self, parent=None):
@@ -539,6 +568,9 @@ class FetchExevaController(QObject):
         self.worker: ExevaFetchWorker | None = None
         self.thread: QThread | None = None
         self._finished_dispatched = False
+        self.retry_worker: SingleDocDownloadWorker | None = None
+        self.retry_thread: QThread | None = None
+        self._retry_finished_dispatched = False
 
     def start_extraction(self, project_id: str):
         if self.thread and self.thread.isRunning():
@@ -577,3 +609,41 @@ class FetchExevaController(QObject):
     def _on_thread_finished(self):
         if not self._finished_dispatched:
             self.extraction_finished.emit(False, {})
+
+    def retry_download(self, project_id: str, doc_data: dict) -> None:
+        if self.retry_thread and self.retry_thread.isRunning():
+            self.log_requested.emit("⚠️ Ya hay un reintento de descarga en curso.")
+            return
+
+        self.retry_started.emit()
+        self.retry_thread = QThread()
+        self.retry_worker = SingleDocDownloadWorker(project_id, doc_data)
+        self._retry_finished_dispatched = False
+
+        self.retry_worker.moveToThread(self.retry_thread)
+        self.retry_thread.started.connect(self.retry_worker.run)
+
+        self.retry_worker.log_signal.connect(self.log_requested.emit)
+        self.retry_worker.finished_signal.connect(self._on_retry_finished)
+        self.retry_thread.finished.connect(self._on_retry_thread_finished)
+
+        self.retry_worker.finished_signal.connect(self.retry_thread.quit)
+        self.retry_worker.finished_signal.connect(self.retry_worker.deleteLater)
+        self.retry_thread.finished.connect(self.retry_thread.deleteLater)
+        self.retry_thread.finished.connect(self._reset_retry_thread_state)
+
+        self.retry_thread.start()
+
+    def _reset_retry_thread_state(self) -> None:
+        self.retry_thread = None
+        self.retry_worker = None
+
+    @pyqtSlot(bool, dict)
+    def _on_retry_finished(self, success: bool, doc_data: dict) -> None:
+        self._retry_finished_dispatched = True
+        self.retry_finished.emit(success, doc_data)
+
+    @pyqtSlot()
+    def _on_retry_thread_finished(self) -> None:
+        if not self._retry_finished_dispatched:
+            self.retry_finished.emit(False, {})
