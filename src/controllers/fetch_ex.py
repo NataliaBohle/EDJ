@@ -1,16 +1,18 @@
 """
 Controlador para extraer documentos del expediente (EX).
-Basado en la lógica de scraping existente en scripts anteriores,
-pero adaptado al estilo de controladores del proyecto actual.
+
+- EXREX -> EXREC (corregido).
+- Soporta códigos dinámicos tipo REC_215... (usa plantilla base EXREC).
+- EXPCI / EXA86 / EXREC construyen URL con IDR.
+- Parsers: EXEVA (nueva/vieja), PAC, PCI, Art.86, Recursos.
 """
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import os
 import time
-import base64
-import concurrent.futures
 from collections import Counter
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -19,42 +21,94 @@ from urllib.parse import urlparse
 import requests
 import urllib3
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 BASE_URL = "https://seia.sea.gob.cl"
-EX_URL_TEMPLATES = {
+
+# Plantillas por "código base" (no por código dinámico).
+EX_URL_TEMPLATES: Dict[str, List[str]] = {
     "EXEVA": [
-        "https://seia.sea.gob.cl/expediente/xhr_expediente2.php?id_expediente={IDP}",
-        "https://seia.sea.gob.cl/expediente/xhr_expediente.php?id_expediente={IDP}",
-        "https://seia.sea.gob.cl/expediente/xhr_documentos.php?id_expediente={IDP}",
+        f"{BASE_URL}/expediente/xhr_expediente2.php?id_expediente={{IDP}}",
+        f"{BASE_URL}/expediente/xhr_expediente.php?id_expediente={{IDP}}",
+        f"{BASE_URL}/expediente/xhr_documentos.php?id_expediente={{IDP}}",
     ],
-    # TODO: agregar templates por expediente aquí.
-    # "EXPAC": ["..."],
-    # "EXPCI": ["..."],
-    # "EXA86": ["..."],
+    "EXPAC": [f"{BASE_URL}/expediente/xhr_documentos_pac.php?id_expediente={{IDP}}"],
+    "EXPCI": [f"{BASE_URL}/expediente/xhr_pci.php?id_expediente={{IDR}}"],
+    "EXA86": [f"{BASE_URL}/expediente/xhr_pci_reunion.php?id_expediente={{IDR}}"],
+
+    # EXREC: endpoints a probar (ajusta a tu endpoint real si ya lo tienes)
+    "EXREC": [
+        f"{BASE_URL}/expediente/xhr_recurso.php?id_recurso={{IDR}}",
+        f"{BASE_URL}/expediente/xhr_recurso.php?id_expediente={{IDP}}&id_recurso={{IDR}}",
+        f"{BASE_URL}/expediente/xhr_recursos.php?id_expediente={{IDP}}",
+    ],
 }
 
-# Silenciar advertencias de certificados autofirmados/ausentes durante las
-# peticiones a los servicios de EXEVA. Se mantienen las solicitudes con
-# verify=False para compatibilidad, pero sin inundar los logs con
-# InsecureRequestWarning.
+EXPEDIENTES_FRAGMENTS = {
+    "ANTGEN": "fichaPrincipal.php",
+    "EXEVA": ["xhr_expediente.php", "xhr_documentos.php"],
+    "EXPAC": "xhr_documentos_pac.php",
+    "EXPCI": "xhr_pci.php",
+    "EXA86": "xhr_pci_reunion.php",
+    "EXSYF": "seguimiento/xhr_principal.php",
+    "EXSAN": "sanciones/xhr_principal.php",
+    "EXREV": "revisionRCA/principal.php",
+    "CAL": "newPlazos.php",
+}
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ---------------------------------------------------------------------------
-# Utilidades de parsing
-# ---------------------------------------------------------------------------
 
-def _log(cb: Callable[[str], None] | None, message: str) -> None:
+# -----------------------------------------------------------------------------
+# HTTP
+# -----------------------------------------------------------------------------
+
+def _make_session() -> requests.Session:
+    s = requests.Session()
+    retry = Retry(
+        total=3,
+        backoff_factor=0.4,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["GET"]),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=20)
+    s.mount("http://", adapter)
+    s.mount("https://", adapter)
+    s.headers.update(
+        {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120 Safari/537.36"
+            )
+        }
+    )
+    return s
+
+
+def _http_get(session: requests.Session, url: str, timeout: int = 20) -> Tuple[int, str]:
+    r = session.get(url, timeout=timeout, verify=False)
+    return r.status_code, (r.text or "")
+
+
+# -----------------------------------------------------------------------------
+# Utilidades
+# -----------------------------------------------------------------------------
+
+def _log(cb: Optional[Callable[[str], None]], message: str) -> None:
     if cb:
         cb(message)
 
 
 def _sanitize_filename(name: str) -> str:
-    """Limpia nombres de archivo eliminando caracteres peligrosos."""
-
-    invalid = '<>:\"/\\|?*'
+    invalid = '<>:"/\\|?*'
     cleaned = "".join("_" if ch in invalid else ch for ch in name)
-    return cleaned.strip() or "documento"
+    cleaned = cleaned.strip()
+    return cleaned or "documento"
 
 
 def _url_extension(url: str) -> str:
@@ -62,21 +116,7 @@ def _url_extension(url: str) -> str:
     return os.path.splitext(path)[1]
 
 
-def _download_binary(url: str, out_path: Path) -> Tuple[bool, Path]:
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with requests.get(url, stream=True, timeout=30, verify=False) as r:
-            r.raise_for_status()
-            with open(out_path, "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-        return True, out_path
-    except Exception:
-        return False, out_path
-
-
-def _abs_url(href: str | None) -> Optional[str]:
+def _abs_url(href: Optional[str]) -> Optional[str]:
     if not href:
         return None
     return BASE_URL + href if href.startswith("/") else href
@@ -101,30 +141,56 @@ def _infer_formato(url_documento: Optional[str], firmado: bool, inactivo: bool =
     return "otro"
 
 
-def _parse_tabla_nueva(tabla) -> List[Dict[str, Any]]:
+def _doc_folder_name(n: str) -> str:
+    try:
+        num = int(n)
+        return f"{num:02d}"
+    except Exception:
+        n = (n or "").strip()
+        return (n[-2:] or "00").zfill(2)
+
+
+def _normalize_code(code: str) -> Tuple[str, Optional[str]]:
+    c = (code or "").strip()
+    for prefix, base in (
+        ("REC_", "EXREC"),
+        ("PCI_", "EXPCI"),
+        ("A86_", "EXA86"),
+        ("PAC_", "EXPAC"),
+    ):
+        if c.startswith(prefix):
+            suffix = c[len(prefix):].strip() or None
+            return base, suffix
+    return c, None
+
+
+# -----------------------------------------------------------------------------
+# Parsing
+# -----------------------------------------------------------------------------
+
+def _parse_tabla_exeva_nueva(tabla) -> List[Dict[str, Any]]:
     tbody = tabla.find("tbody") or tabla
     rows = tbody.find_all("tr", recursive=False)
-    documentos: List[Dict[str, Any]] = []
+    docs: List[Dict[str, Any]] = []
 
     for row in rows:
-        celdas = row.find_all("td", recursive=False)
-        if len(celdas) < 7:
+        c = row.find_all("td", recursive=False)
+        if len(c) < 7:
             continue
 
-        n_visual = (celdas[0].get_text(strip=True) or "")
+        n_visual = (c[0].get_text(strip=True) or "")
         n = n_visual.zfill(4) if n_visual.isdigit() else (n_visual or "0").zfill(4)
-        num_doc = celdas[1].get_text(strip=True) or None
-        folio = celdas[2].get_text(strip=True) or None
+        num_doc = c[1].get_text(strip=True) or None
+        folio = c[2].get_text(strip=True) or None
 
-        col_doc = celdas[3]
+        col_doc = c[3]
         a_doc = col_doc.find("a", href=True)
         titulo = a_doc.get_text(strip=True) if a_doc else "Sin título"
         url_documento = _abs_url(a_doc["href"]) if a_doc else None
 
-        remitido_por = celdas[4].get_text(strip=True) or None
-        destinado_a = celdas[5].get_text(strip=True) or None
-        fecha_hora = celdas[6].get_text(strip=True)
-
+        remitido_por = c[4].get_text(strip=True) or None
+        destinado_a = c[5].get_text(strip=True) or None
+        fecha_hora = c[6].get_text(strip=True)
         fecha, hora = (fecha_hora.split(" ", 1) if " " in fecha_hora else (fecha_hora, None))
 
         firmado = bool(col_doc.find("img", src=lambda s: s and "certd.gif" in s))
@@ -138,7 +204,7 @@ def _parse_tabla_nueva(tabla) -> List[Dict[str, Any]]:
 
         formato = _infer_formato(url_documento, firmado, inactivo)
 
-        documentos.append(
+        docs.append(
             {
                 "n": n,
                 "num_doc": num_doc,
@@ -154,37 +220,36 @@ def _parse_tabla_nueva(tabla) -> List[Dict[str, Any]]:
                 "ruta": "",
             }
         )
-    return documentos
+    return docs
 
 
-def _parse_tabla_vieja(tabla) -> List[Dict[str, Any]]:
+def _parse_tabla_exeva_vieja(tabla) -> List[Dict[str, Any]]:
     tbody = tabla.find("tbody") or tabla
     rows = tbody.find_all("tr", recursive=False)
-    documentos: List[Dict[str, Any]] = []
+    docs: List[Dict[str, Any]] = []
 
     for row in rows:
-        celdas = row.find_all("td", recursive=False)
-        if len(celdas) < 8:
+        c = row.find_all("td", recursive=False)
+        if len(c) < 8:
             continue
 
-        n = (celdas[0].get_text(strip=True) or "").zfill(4)
-        num_doc = celdas[1].get_text(strip=True) or None
-        folio = celdas[2].get_text(strip=True)
-        col_doc = celdas[3]
-        col_acc = celdas[7]
+        n = (c[0].get_text(strip=True) or "").zfill(4)
+        num_doc = c[1].get_text(strip=True) or None
+        folio = c[2].get_text(strip=True) or None
+        col_doc = c[3]
+        col_acc = c[7]
 
         a_doc = col_doc.find("a", href=True)
         titulo = a_doc.get_text(strip=True) if a_doc else "Sin título"
         url_documento = _abs_url(a_doc["href"]) if a_doc else None
 
-        remitido_por = celdas[4].get_text(strip=True)
-        destinado_a = celdas[5].get_text(strip=True) or None
-        fecha_hora = celdas[6].get_text(strip=True)
+        remitido_por = c[4].get_text(strip=True) or None
+        destinado_a = c[5].get_text(strip=True) or None
+        fecha_hora = c[6].get_text(strip=True)
         fecha, hora = (fecha_hora.split(" ", 1) if " " in fecha_hora else (fecha_hora, None))
 
         firmado = bool(col_doc.find("img", src=lambda s: s and "certd.gif" in s)) or (
-            url_documento
-            and ("firma.sea.gob.cl" in url_documento or "infofirma.sea.gob.cl" in url_documento)
+            url_documento and ("firma.sea.gob.cl" in url_documento or "infofirma.sea.gob.cl" in url_documento)
         )
         inactivo = bool(col_doc.find("img", src=lambda s: s and "leafInactivo.gif" in s))
 
@@ -210,7 +275,7 @@ def _parse_tabla_vieja(tabla) -> List[Dict[str, Any]]:
 
         formato = _infer_formato(url_documento, firmado, inactivo)
 
-        documentos.append(
+        docs.append(
             {
                 "n": n,
                 "num_doc": num_doc,
@@ -226,124 +291,327 @@ def _parse_tabla_vieja(tabla) -> List[Dict[str, Any]]:
                 "ruta": "",
             }
         )
-    return documentos
+    return docs
 
 
-def _parse_documentos_from_html(html: str, log: Callable[[str], None] | None) -> List[Dict[str, Any]]:
-    """Parsea HTML del expediente y devuelve la lista de documentos encontrados."""
+def _parse_tabla_pac(tabla) -> List[Dict[str, Any]]:
+    tbody = tabla.find("tbody") or tabla
+    rows = tbody.find_all("tr", recursive=False)
+    docs: List[Dict[str, Any]] = []
 
-    soup = BeautifulSoup(html, "html.parser")
-    documentos: List[Dict[str, Any]] = []
+    for row in rows:
+        c = row.find_all("td", recursive=False)
+        if len(c) < 7:
+            continue
 
-    tabla_nueva = soup.select_one("table.tabla_datos_linea")
-    if tabla_nueva:
-        documentos = _parse_tabla_nueva(tabla_nueva)
-    else:
-        tabla_vieja = soup.select_one("#tbldocumentos") or soup.find("table", id="tbldocumentos")
-        if tabla_vieja:
-            documentos = _parse_tabla_vieja(tabla_vieja)
-        else:
-            posible = None
-            for t in soup.find_all("table"):
-                ths = [th.get_text(strip=True).lower() for th in t.find_all("th")]
-                headers = " ".join(ths)
-                if all(h in headers for h in ["folio", "documento", "remitido", "destinado", "fecha"]):
-                    posible = t
-                    break
-            if posible:
-                documentos = _parse_tabla_nueva(posible)
-            else:
-                _log(log, "[EX] No se encontró tabla de documentos.")
+        n_visual = (c[1].get_text(strip=True) or "")
+        n = n_visual.zfill(4) if n_visual.isdigit() else (n_visual or "0").zfill(4)
 
-    return documentos
+        folio = c[2].get_text(strip=True) or None
+        col_doc = c[3]
+        a_doc = col_doc.find("a", href=True)
+        titulo = a_doc.get_text(strip=True) if a_doc else "Sin título"
+        url_documento = _abs_url(a_doc["href"]) if a_doc else None
 
+        remitido_por = c[4].get_text(strip=True) or None
+        destinado_a = c[5].get_text(strip=True) or None
 
-# ---------------------------------------------------------------------------
-# Descarga de documentos
-# ---------------------------------------------------------------------------
+        fecha_hora = c[6].get_text(strip=True)
+        fecha, hora = (fecha_hora.split(" ", 1) if " " in fecha_hora else (fecha_hora, None))
 
-
-def _print_docdigital(url: str, out_path: Path, log: Callable[[str], None] | None = None) -> Tuple[bool, Path]:
-    """Imprime un documento digital usando Selenium (modo headless)."""
-
-    try:
-        from selenium import webdriver
-        from selenium.webdriver.chrome.options import Options
-        from selenium.webdriver.chrome.service import Service
-        from selenium.webdriver.support.ui import WebDriverWait
-        from webdriver_manager.chrome import ChromeDriverManager
-
-        chrome_options = Options()
-        chrome_options.add_argument("--headless=new")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--window-size=1280,2000")
-        chrome_options.add_argument(
-            "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+        firmado = bool(col_doc.find("img", src=lambda s: s and "certd.gif" in s)) or (
+            url_documento and ("firma.sea.gob.cl" in url_documento or "infofirma.sea.gob.cl" in url_documento)
         )
+        inactivo = bool(col_doc.find("img", src=lambda s: s and "leafInactivo.gif" in s))
 
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+        anexos = None
+        for a in col_doc.find_all("a", href=True):
+            if "elementosFisicos/enviados.php" in a["href"]:
+                anexos = _abs_url(a["href"])
+                break
 
-        driver.get(url)
-        WebDriverWait(driver, timeout=45).until(lambda d: d.execute_script("return document.readyState") == "complete")
+        formato = _infer_formato(url_documento, firmado, inactivo)
 
-        pdf = driver.execute_cdp_cmd("Page.printToPDF", {"printBackground": True, "paperWidth": 8.5, "paperHeight": 13})
+        docs.append(
+            {
+                "n": n,
+                "folio": folio,
+                "titulo": titulo,
+                "remitido_por": remitido_por,
+                "destinado_a": destinado_a,
+                "fecha": fecha,
+                "hora": hora,
+                "anexos_expediente": anexos,
+                "URL_documento": url_documento,
+                "formato": formato,
+                "ruta": "",
+            }
+        )
+    return docs
 
-        if out_path.suffix.lower() != ".pdf":
-            out_path = out_path.with_suffix(".pdf")
 
-        with open(out_path, "wb") as f:
-            f.write(base64.b64decode(pdf["data"]))
+def _parse_tabla_pci(tabla) -> List[Dict[str, Any]]:
+    tbody = tabla.find("tbody") or tabla
+    rows = tbody.find_all("tr", recursive=False)
+    docs: List[Dict[str, Any]] = []
 
-        driver.quit()
+    for row in rows:
+        c = row.find_all("td", recursive=False)
+        if len(c) < 7:
+            continue
+
+        n_visual = (c[0].get_text(strip=True) or "")
+        n = n_visual.zfill(4) if n_visual.isdigit() else (n_visual or "0").zfill(4)
+        num_doc = c[1].get_text(strip=True) or None
+        etapa = c[2].get_text(strip=True) or None
+
+        col_doc = c[3]
+        a_doc = col_doc.find("a", href=True)
+        titulo = a_doc.get_text(strip=True) if a_doc else "Sin título"
+        url_documento = _abs_url(a_doc["href"]) if a_doc else None
+
+        fecha_exp_txt = c[4].get_text(strip=True)
+        fecha_exp, hora_exp = (fecha_exp_txt.split(" ", 1) if " " in fecha_exp_txt else (fecha_exp_txt, None))
+
+        autor = c[5].get_text(strip=True) or None
+
+        fecha_gen_txt = c[6].get_text(strip=True) if len(c) >= 7 else ""
+        fecha_gen, hora_gen = (fecha_gen_txt.split(" ", 1) if " " in fecha_gen_txt else (fecha_gen_txt, None))
+
+        col_acc = c[-1]
+        firmado = bool(col_doc.find("img", src=lambda s: s and "certd.gif" in s)) or (
+            url_documento and ("firma.sea.gob.cl" in url_documento or "infofirma.sea.gob.cl" in url_documento)
+        )
+        inactivo = bool(col_doc.find("img", src=lambda s: s and "leafInactivo.gif" in s))
+
+        anexos = None
+        for a in col_doc.find_all("a", href=True):
+            if "elementosFisicos/enviados.php" in a["href"]:
+                anexos = _abs_url(a["href"])
+                break
+        if not anexos and col_acc:
+            btn = col_acc.find(
+                lambda t: t.name in ("button", "a")
+                and t.has_attr("onclick")
+                and "elementosFisicos/enviados.php" in t["onclick"]
+            )
+            if btn:
+                oc = btn["onclick"]
+                start = oc.find("('")
+                if start != -1:
+                    start += 2
+                    end = oc.find("'", start)
+                    if end != -1:
+                        anexos = _abs_url(oc[start:end])
+
+        formato = _infer_formato(url_documento, firmado, inactivo)
+
+        docs.append(
+            {
+                "n": n,
+                "num_doc": num_doc,
+                "etapa": etapa,
+                "titulo": titulo,
+                "remitido_por": autor,
+                "destinado_a": None,
+                "fecha_exp": fecha_exp,
+                "hora_exp": hora_exp,
+                "fecha_gen": fecha_gen,
+                "hora_gen": hora_gen,
+                "anexos_expediente": anexos,
+                "URL_documento": url_documento,
+                "formato": formato,
+                "ruta": "",
+            }
+        )
+    return docs
+
+
+def _parse_tabla_reunion_a86(tabla) -> List[Dict[str, Any]]:
+    tbody = tabla.find("tbody") or tabla
+    rows = tbody.find_all("tr", recursive=False)
+    docs: List[Dict[str, Any]] = []
+
+    for row in rows:
+        c = row.find_all("td", recursive=False)
+        if len(c) < 6:
+            continue
+
+        n_visual = (c[1].get_text(strip=True) or "")
+        n = n_visual.zfill(4) if n_visual.isdigit() else (n_visual or "0").zfill(4)
+
+        col_doc = c[2]
+        a_doc = col_doc.find("a", href=True)
+        titulo = a_doc.get_text(strip=True) if a_doc else "Sin título"
+        url_documento = _abs_url(a_doc["href"]) if a_doc else None
+
+        fecha_pub_txt = c[3].get_text(strip=True)
+        fecha_pub, hora_pub = (fecha_pub_txt.split(" ", 1) if " " in fecha_pub_txt else (fecha_pub_txt, None))
+
+        autor = c[4].get_text(strip=True) or None
+
+        fecha_gen_txt = c[5].get_text(strip=True) if len(c) > 5 else ""
+        fecha_gen, hora_gen = (fecha_gen_txt.split(" ", 1) if " " in fecha_gen_txt else (fecha_gen_txt, None))
+
+        firmado = bool(col_doc.find("img", src=lambda s: s and "certd.gif" in s)) or (
+            url_documento and ("firma.sea.gob.cl" in url_documento or "infofirma.sea.gob.cl" in url_documento)
+        )
+        inactivo = bool(col_doc.find("img", src=lambda s: s and "leafInactivo.gif" in s))
+
+        formato = _infer_formato(url_documento, firmado, inactivo)
+
+        docs.append(
+            {
+                "n": n,
+                "titulo": titulo,
+                "remitido_por": autor,
+                "destinado_a": None,
+                "fecha": fecha_pub,
+                "hora": hora_pub,
+                "fecha_gen": fecha_gen,
+                "hora_gen": hora_gen,
+                "anexos_expediente": None,
+                "URL_documento": url_documento,
+                "formato": formato,
+                "ruta": "",
+            }
+        )
+    return docs
+
+
+def _parse_tabla_recursos(tabla) -> List[Dict[str, Any]]:
+    tbody = tabla.find("tbody") or tabla
+    rows = tbody.find_all("tr", recursive=False)
+    docs: List[Dict[str, Any]] = []
+
+    for row in rows:
+        c = row.find_all("td", recursive=False)
+        if len(c) < 6:
+            continue
+
+        n_visual = (c[1].get_text(strip=True) or "")
+        n = n_visual.zfill(4) if n_visual.isdigit() else (n_visual or "0").zfill(4)
+
+        folio = c[2].get_text(strip=True) or None
+        col_doc = c[3]
+        a_doc = col_doc.find("a", href=True)
+        titulo = a_doc.get_text(strip=True) if a_doc else "Sin título"
+        url_documento = _abs_url(a_doc["href"]) if a_doc else None
+
+        remitido_por = c[4].get_text(strip=True) or None
+
+        fecha_txt = c[5].get_text(strip=True)
+        fecha, hora = (fecha_txt.split(" ", 1) if " " in fecha_txt else (fecha_txt, None))
+
+        firmado = bool(col_doc.find("img", src=lambda s: s and "certd.gif" in s)) or (
+            url_documento and ("firma.sea.gob.cl" in url_documento or "infofirma.sea.gob.cl" in url_documento)
+        )
+        inactivo = bool(col_doc.find("img", src=lambda s: s and "leafInactivo.gif" in s))
+
+        formato = _infer_formato(url_documento, firmado, inactivo)
+
+        docs.append(
+            {
+                "n": n,
+                "folio": folio,
+                "titulo": titulo,
+                "remitido_por": remitido_por,
+                "destinado_a": None,
+                "fecha": fecha,
+                "hora": hora,
+                "anexos_expediente": None,
+                "URL_documento": url_documento,
+                "formato": formato,
+                "ruta": "",
+            }
+        )
+    return docs
+
+
+def _parse_documentos_from_html(html: str, log: Optional[Callable[[str], None]]) -> List[Dict[str, Any]]:
+    soup = BeautifulSoup(html or "", "html.parser")
+
+    tabla_exeva_nueva = soup.select_one("table.tabla_datos_linea")
+    if tabla_exeva_nueva:
+        return _parse_tabla_exeva_nueva(tabla_exeva_nueva)
+
+    tabla_exeva_vieja = soup.select_one("#tbldocumentos") or soup.select_one("table.tbldocumentos") or soup.find(
+        "table", id="tbldocumentos"
+    )
+    if tabla_exeva_vieja:
+        return _parse_tabla_exeva_vieja(tabla_exeva_vieja)
+
+    tabla_pac = soup.select_one("table.tabla-dinamica_pac") or soup.select_one("table.tabla_dinamica_pac")
+    if tabla_pac:
+        return _parse_tabla_pac(tabla_pac)
+
+    tabla_pci = soup.select_one("#pci") or soup.select_one("table.pci") or soup.select_one(
+        "table.tabla-dinamica_pci"
+    ) or soup.select_one("table.tabla_dinamica_pci")
+    if tabla_pci:
+        return _parse_tabla_pci(tabla_pci)
+
+    tabla_reunion = soup.select_one("table.tabla-dinamica_reunion") or soup.select_one(
+        "table.tabla_dinamica_reunion"
+    ) or soup.find("table", id="example23")
+    if tabla_reunion:
+        return _parse_tabla_reunion_a86(tabla_reunion)
+
+    tabla_rec = soup.find("table", id="table-expediente-recurso") or soup.select_one("table#table-expediente-recurso")
+    if tabla_rec:
+        return _parse_tabla_recursos(tabla_rec)
+
+    _log(log, "[EX] No se reconoció ninguna tabla de documentos en el HTML.")
+    return []
+
+
+# -----------------------------------------------------------------------------
+# Descarga (mantiene contrato)
+# -----------------------------------------------------------------------------
+
+def _download_binary(session: requests.Session, url: str, out_path: Path) -> Tuple[bool, Path]:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with session.get(url, stream=True, timeout=40, verify=False) as r:
+            if r.status_code != 200:
+                return False, out_path
+            with open(out_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
         return True, out_path
-    except Exception as exc:
-        _log(log, f"[EX] Falló la impresión Selenium: {exc}")
+    except Exception:
         return False, out_path
 
 
-def _doc_folder_name(n: str) -> str:
-    try:
-        num = int(n)
-        return f"{num:02d}"
-    except Exception:
-        n = (n or "").strip()
-        return (n[-2:] or "00").zfill(2)
-
-
 def _process_doc(
+    session: requests.Session,
     d: dict,
     base_dir: Path,
     code: str,
-    project_id: str,
-    log: Callable | None,
+    log: Optional[Callable[[str], None]],
     overwrite: bool = False,
 ) -> bool:
     ex_dir = base_dir / code
     files_root = ex_dir / "files"
 
-    # 1. Validar si ya existe
     if not overwrite:
         ruta_prev = d.get("ruta")
-        try:
-            if ruta_prev:
+        if ruta_prev:
+            try:
                 p_str = str(ruta_prev).replace("/", os.sep).replace("\\", os.sep)
                 p_prev = Path(p_str)
                 if not p_prev.is_absolute():
                     p_prev = (base_dir / p_prev).resolve()
                 if p_prev.is_file():
                     return True
-        except Exception:
-            pass
+            except Exception:
+                pass
 
-    # 2. Datos
     folio = str(d.get("folio") or "").strip()
     titulo = str(d.get("titulo") or "").strip()
-    n = str(d.get("n") or d.get("num_doc") or "").strip()
-    formato = (d.get("formato") or "").strip().lower()
+    n = str(d.get("n") or d.get("num_doc") or "").strip() or "0"
     url = d.get("URL_documento") or d.get("url") or ""
-
     if not url:
         d["error_descarga"] = True
         return False
@@ -352,135 +620,122 @@ def _process_doc(
     out_dir = files_root / folder_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 3. Ruta usando utilidades
     base_name = _sanitize_filename("_".join([p for p in [n, folio, titulo] if p])) or "documento"
     ext_url = _url_extension(url)
-    is_php_like = ext_url in ("", ".php") or "documento.php" in url.lower()
-
     final_ext = ext_url or ".bin"
-    if is_php_like or formato == "doc digital" or "pdf" in formato:
+    if ext_url in ("", ".php") or "documento.php" in url.lower():
         final_ext = ".pdf"
 
     saved_path = out_dir / (base_name + final_ext)
 
-    # 4. Descarga
-    use_printer = (is_php_like or formato == "doc digital") and ("pdf firmado" not in formato)
+    _log(log, f"[Worker] Descargando: {titulo}")
+    ok, saved_path = _download_binary(session, url, saved_path)
 
-    ok = False
-    if use_printer:
-        if overwrite:
-            _log(log, f"[Worker] Recargando (Selenium): {titulo}")
-        else:
-            _log(log, f"[Worker] Imprimiendo: {titulo}")
-        ok, saved_path = _print_docdigital(url, saved_path, log=log)
-    else:
-        if overwrite:
-            _log(log, f"[Worker] Recargando: {titulo}")
-        else:
-            _log(log, f"[Worker] Descargando: {titulo}")
-        ok, saved_path = _download_binary(url, saved_path)
-
-    # 5. Guardar ruta
     if ok:
         try:
             rel = saved_path.resolve().relative_to(base_dir.resolve())
         except Exception:
-            rel = Path(code) / "files" / saved_path.name
+            rel = Path(code) / "files" / folder_name / saved_path.name
 
-        clean_path = str(rel).replace("\\", "/")
-        if clean_path.startswith("/"):
-            clean_path = clean_path[1:]
-
-        d["ruta"] = clean_path
+        d["ruta"] = str(rel).replace("\\", "/").lstrip("/")
         d.pop("error_descarga", None)
         return True
 
-    _log(log, f"[Worker] Falló: {titulo}")
     d["error_descarga"] = True
     return False
 
 
-def _download_documents(
-    project_id: str,
-    code: str,
-    ex_data: dict,
-    log: Callable[[str], None] | None = None,
-) -> None:
+def _download_documents(project_id: str, code: str, ex_data: dict, log: Optional[Callable[[str], None]] = None) -> None:
     documentos = ex_data.get(code, {}).get("documentos", []) if isinstance(ex_data, dict) else []
     total = len(documentos)
-
-    base_dir = Path(os.getcwd()) / "Ebook" / project_id
-    base_dir.mkdir(parents=True, exist_ok=True)
     if total == 0:
         return
 
+    base_dir = Path(os.getcwd()) / "Ebook" / project_id
+    base_dir.mkdir(parents=True, exist_ok=True)
+
     _log(log, f"[EX] Iniciando descarga de {total} documentos...")
+    session = _make_session()
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-        futures = [
-            executor.submit(_process_doc, d, base_dir, code, project_id, log, False)
-            for d in documentos
-        ]
-
-        completed = 0
-        for future in concurrent.futures.as_completed(futures):
-            completed += 1
+        futures = [executor.submit(_process_doc, session, d, base_dir, code, log, False) for d in documentos]
+        done = 0
+        for f in concurrent.futures.as_completed(futures):
             try:
-                future.result()
-            except Exception as exc:
-                _log(log, f"[EX] Error en descarga concurrente: {exc}")
+                f.result()
+            except Exception:
+                pass
+            done += 1
+            if done % 10 == 0 or done == total:
+                _log(log, f"[EX] Descarga {done}/{total}")
 
     _log(log, "[EX] Descarga finalizada.")
 
 
-# ---------------------------------------------------------------------------
-# Extracción de datos
-# ---------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Extracción
+# -----------------------------------------------------------------------------
 
-def _extract_expediente(code: str, idp: str, log: Callable[[str], None] | None = None) -> Dict[str, Any]:
+def _extract_expediente(
+    code: str,
+    idp: Optional[str],
+    idr: Optional[str] = None,
+    log: Optional[Callable[[str], None]] = None,
+) -> Dict[str, Any]:
     idp = (idp or "").strip()
+    idr = (idr or "").strip()
 
-    documentos: List[Dict[str, Any]] = []
-    templates = EX_URL_TEMPLATES.get(code, [])
+    template_code, embedded_idr = _normalize_code(code)
+    if not idr and embedded_idr:
+        idr = embedded_idr
+
+    templates = EX_URL_TEMPLATES.get(template_code, [])
     if not templates:
-        _log(log, f"[EX] No hay templates configuradas para {code}.")
-        return {"IDP": idp, code: {"documentos": [], "summary": {"total": 0, "format_counts": {}}}}
+        _log(log, f"[EX] No hay templates configuradas para {template_code} (code='{code}').")
+        return {"IDP": idp, "IDR": idr, code: {"documentos": [], "summary": {"total": 0, "format_counts": {}}}}
 
-    for template in templates:
-        url = template.format(IDP=idp)
-        _log(log, f"[{code}] Consultando expediente: {url}")
+    session = _make_session()
+    documentos: List[Dict[str, Any]] = []
 
-        try:
-            r = requests.get(url, timeout=15, verify=False)
-        except requests.RequestException as exc:
-            _log(log, f"[{code}] Error de conexión con '{url}': {exc}")
+    for tpl in templates:
+        if "{IDR}" in tpl:
+            if not idr:
+                _log(log, f"[{code}] Falta IDR para construir URL (template requiere IDR).")
+                continue
+            url = tpl.format(IDR=idr, IDP=idp)
+        else:
+            if not idp:
+                _log(log, f"[{code}] Falta IDP para construir URL (template requiere IDP).")
+                continue
+            url = tpl.format(IDP=idp, IDR=idr)
+
+        _log(log, f"[{code}] Consultando: {url}")
+        status, body = _http_get(session, url, timeout=25)
+
+        if status != 200 or not body:
+            _log(log, f"[{code}] HTTP {status} (sin contenido útil) para '{url}'")
             continue
 
-        if r.status_code != 200:
-            _log(log, f"[{code}] Respuesta HTTP inesperada ({r.status_code}) para '{url}'")
-            continue
-
-        documentos = _parse_documentos_from_html(r.text, log)
+        documentos = _parse_documentos_from_html(body, log)
         if documentos:
             break
-        _log(log, f"[{code}] Respuesta sin documentos desde '{url}', probando siguiente plantilla...")
+
+        _log(log, f"[{code}] Respuesta sin documentos desde '{url}', probando siguiente plantilla.")
 
     if not documentos:
-        return {"IDP": idp, code: {"documentos": [], "summary": {"total": 0, "format_counts": {}}}}
+        return {"IDP": idp, "IDR": idr, code: {"documentos": [], "summary": {"total": 0, "format_counts": {}}}}
 
     conteo = Counter(doc.get("formato", "sin formato") for doc in documentos)
     return {
         "IDP": idp,
-        code: {
-            "documentos": documentos,
-            "summary": {"total": len(documentos), "format_counts": dict(conteo)},
-        },
+        "IDR": idr,
+        code: {"documentos": documentos, "summary": {"total": len(documentos), "format_counts": dict(conteo)}},
     }
 
 
-# ---------------------------------------------------------------------------
-# Persistencia
-# ---------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Persistencia (mantiene contrato)
+# -----------------------------------------------------------------------------
 
 def _save_ex_data(idp: str, code: str, ex_data: dict, new_status: str, log: Callable[[str], None]):
     base_folder = os.path.join(os.getcwd(), "Ebook", idp)
@@ -492,7 +747,7 @@ def _save_ex_data(idp: str, code: str, ex_data: dict, new_status: str, log: Call
 
     try:
         with open(ex_json_path, "w", encoding="utf-8") as f:
-            json.dump(ex_data, f, indent=4, ensure_ascii=False)
+            json.dump(ex_data, f, indent=2, ensure_ascii=False)
         log(f"💾 Datos {code} guardados en {ex_json_path}")
     except Exception as exc:
         log(f"❌ Error crítico al escribir datos {code}: {exc}")
@@ -511,34 +766,45 @@ def _save_ex_data(idp: str, code: str, ex_data: dict, new_status: str, log: Call
             data["expedientes"][code]["step_status"] = "detectado"
             data["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
-        with open(base_json_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
+            with open(base_json_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            log(f"💾 Progreso {code}: Paso 0 ({new_status})")
+        else:
+            log(f"⚠️ No se encontró el código {code} en {base_json_path} para actualizar estado.")
     except Exception as exc:
-        log(f"❌ Error crítico al actualizar estado en JSON base: {exc}")
+        log(f"❌ Error actualizando estado en {base_json_path}: {exc}")
 
 
-# ---------------------------------------------------------------------------
-# Worker y controlador
-# ---------------------------------------------------------------------------
-
+# -----------------------------------------------------------------------------
+# Integración con la app
+# -----------------------------------------------------------------------------
 
 class ExFetchWorker(QObject):
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(bool, dict)
 
-    def __init__(self, project_id: str, target_id: str, code: str):
+    def __init__(self, project_id: str, code: str, target_id: str):
         super().__init__()
-        self.project_id = project_id
-        self.target_id = target_id
-        self.code = code
+        self.project_id = str(project_id)
+        self.code = str(code)
+        self.target_id = str(target_id)
 
     @pyqtSlot()
     def run(self):
         self.log_signal.emit(f"🔎 Extracción de {self.code} para ID {self.target_id}...")
         success = False
         result_data: Dict[str, Any] = {}
+
         try:
-            ex_data = _extract_expediente(self.code, self.target_id, log=self.log_signal.emit)
+            template_code, embedded_idr = _normalize_code(self.code)
+
+            if template_code in ("EXPCI", "EXA86", "EXREC"):
+                idr = embedded_idr or self.target_id
+                ex_data = _extract_expediente(self.code, idp=self.project_id, idr=idr, log=self.log_signal.emit)
+            else:
+                ex_data = _extract_expediente(self.code, idp=self.target_id, idr=None, log=self.log_signal.emit)
+
             documentos = ex_data.get(self.code, {}).get("documentos", [])
 
             if documentos:
@@ -556,67 +822,33 @@ class ExFetchWorker(QObject):
         self.finished_signal.emit(success, result_data)
 
 
-class SingleDocDownloadWorker(QObject):
-    log_signal = pyqtSignal(str)
-    finished_signal = pyqtSignal(bool, dict)
-
-    def __init__(self, project_id: str, code: str, doc_data: dict):
-        super().__init__()
-        self.project_id = project_id
-        self.code = code
-        self.doc_data = doc_data
-
-    @pyqtSlot()
-    def run(self) -> None:
-        success = False
-        try:
-            base_dir = Path(os.getcwd()) / "Ebook" / self.project_id
-            success = _process_doc(
-                self.doc_data,
-                base_dir,
-                self.code,
-                self.project_id,
-                self.log_signal.emit,
-                overwrite=True,
-            )
-            if success:
-                self.log_signal.emit("✅ Reintento de descarga completado.")
-            else:
-                self.log_signal.emit("⚠️ Reintento de descarga fallido.")
-        except Exception as exc:
-            self.log_signal.emit(f"❌ Error inesperado durante reintento: {exc}")
-        self.finished_signal.emit(success, self.doc_data)
-
-
-class FetchExController(QObject):
-    extraction_started = pyqtSignal()
-    extraction_finished = pyqtSignal(bool, dict)
-    retry_started = pyqtSignal()
-    retry_finished = pyqtSignal(bool, dict)
+class ExFetchController(QObject):
     log_requested = pyqtSignal(str)
+    fetch_finished = pyqtSignal(bool, dict)
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.worker: ExFetchWorker | None = None
-        self.thread: QThread | None = None
-        self._finished_dispatched = False
-        self.retry_worker: SingleDocDownloadWorker | None = None
-        self.retry_thread: QThread | None = None
+    retry_log_requested = pyqtSignal(str)
+    retry_finished = pyqtSignal(bool, dict)
+
+    def __init__(self):
+        super().__init__()
+        self.thread: Optional[QThread] = None
+        self.worker: Optional[ExFetchWorker] = None
+
+        self.retry_thread: Optional[QThread] = None
+        self.retry_worker: Optional[ExFetchWorker] = None
+        self._fetch_finished_dispatched = False
         self._retry_finished_dispatched = False
 
-    def start_extraction(self, project_id: str, target_id: str, code: str):
-        if self.thread and self.thread.isRunning():
-            self.log_requested.emit("⚠️ Extracción de expediente ya está en curso.")
+    def start_fetch(self, project_id: str, code: str, target_id: str) -> None:
+        if self.thread is not None:
             return
 
-        self.extraction_started.emit()
+        self._fetch_finished_dispatched = False
         self.thread = QThread()
-        self.worker = ExFetchWorker(project_id, target_id, code)
-        self._finished_dispatched = False
-
+        self.worker = ExFetchWorker(project_id, code, target_id)
         self.worker.moveToThread(self.thread)
-        self.thread.started.connect(self.worker.run)
 
+        self.thread.started.connect(self.worker.run)
         self.worker.log_signal.connect(self.log_requested.emit)
         self.worker.finished_signal.connect(self._on_finished)
         self.thread.finished.connect(self._on_thread_finished)
@@ -628,34 +860,31 @@ class FetchExController(QObject):
 
         self.thread.start()
 
-    def _reset_thread_state(self):
+    def _reset_thread_state(self) -> None:
         self.thread = None
         self.worker = None
 
     @pyqtSlot(bool, dict)
-    def _on_finished(self, success: bool, exeva_data: dict):
-        self._finished_dispatched = True
-        self.extraction_finished.emit(success, exeva_data)
+    def _on_finished(self, success: bool, doc_data: dict) -> None:
+        self._fetch_finished_dispatched = True
+        self.fetch_finished.emit(success, doc_data)
 
     @pyqtSlot()
-    def _on_thread_finished(self):
-        if not self._finished_dispatched:
-            self.extraction_finished.emit(False, {})
+    def _on_thread_finished(self) -> None:
+        if not self._fetch_finished_dispatched:
+            self.fetch_finished.emit(False, {})
 
-    def retry_download(self, project_id: str, code: str, doc_data: dict) -> None:
-        if self.retry_thread and self.retry_thread.isRunning():
-            self.log_requested.emit("⚠️ Ya hay un reintento de descarga en curso.")
+    def start_retry(self, project_id: str, code: str, target_id: str) -> None:
+        if self.retry_thread is not None:
             return
 
-        self.retry_started.emit()
-        self.retry_thread = QThread()
-        self.retry_worker = SingleDocDownloadWorker(project_id, code, doc_data)
         self._retry_finished_dispatched = False
-
+        self.retry_thread = QThread()
+        self.retry_worker = ExFetchWorker(project_id, code, target_id)
         self.retry_worker.moveToThread(self.retry_thread)
-        self.retry_thread.started.connect(self.retry_worker.run)
 
-        self.retry_worker.log_signal.connect(self.log_requested.emit)
+        self.retry_thread.started.connect(self.retry_worker.run)
+        self.retry_worker.log_signal.connect(self.retry_log_requested.emit)
         self.retry_worker.finished_signal.connect(self._on_retry_finished)
         self.retry_thread.finished.connect(self._on_retry_thread_finished)
 

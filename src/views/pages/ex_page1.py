@@ -17,7 +17,7 @@ from src.views.components.links_review import LinksReviewDialog
 from src.views.components.mini_status import MiniStatusBar
 
 # Controladores y Modelos de antgen
-from src.controllers.fetch_ex import FetchExController
+from src.controllers.fetch_ex import ExFetchController
 from src.controllers.fetch_anexos import FetchAnexosController
 from src.controllers.down_anexos import DownAnexosController
 from src.models.project_data_manager import ProjectDataManager
@@ -49,7 +49,7 @@ class ExPage1(QWidget):
         self.data_manager.log_requested.connect(self.log_requested.emit)
 
         # Controladores a implementar en siguientes iteraciones
-        self.fetch_controller = FetchExController(self)
+        self.fetch_controller = ExFetchController(self)
         self.fetch_controller.log_requested.connect(self.log_requested.emit)
         self.fetch_controller.extraction_started.connect(self._on_extraction_started)
         self.fetch_controller.extraction_finished.connect(self._on_extraction_finished)
