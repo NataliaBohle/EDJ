@@ -11,7 +11,7 @@ from src.views.pages.antgen_page import AntGenPage
 from src.views.pages.ex_page1 import ExPage1
 from src.views.pages.exeva_page2 import Exeva2Page
 # Asegúrate de que el nombre del archivo coincida (fetch_exp o fetch_exp_controller)
-from src.controllers.fetch_tablas import FetchExp
+from src.controllers.detect_exps import FetchExp
 from src.controllers.step_controller import StepController
 
 

@@ -17,7 +17,7 @@ from src.views.components.links_review import LinksReviewDialog
 from src.views.components.mini_status import MiniStatusBar
 
 # Controladores y Modelos de antgen
-from src.controllers.fetch_ex import ExFetchController
+from src.controllers.fetch_tablas import ExFetchController
 from src.controllers.fetch_anexos import FetchAnexosController
 from src.controllers.down_anexos import DownAnexosController
 from src.models.project_data_manager import ProjectDataManager
