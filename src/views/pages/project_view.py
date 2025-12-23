@@ -117,7 +117,7 @@ class ProjectView(QWidget):
         return {
             "code": code,
             "tipo": info.get("tipo"),
-            "idp": info.get("idp", idp),
+            "idp": idp,
             "idr": idr,
             "target_id": idr or idp,
         }

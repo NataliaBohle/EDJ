@@ -75,7 +75,6 @@ class FetchWorker(QThread):
                         "status": "detectado",
                         "titulo": UI_TITLES.get(code, code),
                         "tipo": "base",
-                        "idp": idp,
                         "step_index": 0,
                         "step_status": "detectado"  # <--- AGREGADO: Inicializa en azul
                     }
@@ -100,7 +99,6 @@ class FetchWorker(QThread):
                     "status": "detectado",
                     "titulo": titulo_dinamico,
                     "tipo": "recurso",
-                    "idp": idp,
                     "idr": res['idr'],
                     "estado_sea": res['estado'],
                     "step_index": 0,
