@@ -822,20 +822,61 @@ class ExFetchWorker(QObject):
         self.finished_signal.emit(success, result_data)
 
 
+class ExRetryWorker(QObject):
+    log_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal(bool, dict)
+
+    def __init__(self, project_id: str, code: str, doc_data: dict):
+        super().__init__()
+        self.project_id = str(project_id)
+        self.code = str(code)
+        self.doc_data = doc_data or {}
+
+    @pyqtSlot()
+    def run(self):
+        success = False
+        doc_label = self.doc_data.get("titulo") or self.doc_data.get("n") or "documento"
+        self.log_signal.emit(f"🔁 Reintentando descarga de {doc_label}...")
+
+        try:
+            base_dir = Path(os.getcwd()) / "Ebook" / self.project_id
+            session = _make_session()
+            success = _process_doc(
+                session,
+                self.doc_data,
+                base_dir,
+                self.code,
+                log=self.log_signal.emit,
+                overwrite=True,
+            )
+            if success:
+                self.log_signal.emit("✅ Descarga reintentada correctamente.")
+            else:
+                self.log_signal.emit("⚠️ No se pudo reintentar la descarga.")
+        except Exception as exc:
+            self.log_signal.emit(f"❌ Error durante el reintento: {exc}")
+            success = False
+
+        self.finished_signal.emit(success, self.doc_data)
+
+
 class ExFetchController(QObject):
+    extraction_started = pyqtSignal()
+    extraction_finished = pyqtSignal(bool, dict)
     log_requested = pyqtSignal(str)
-    fetch_finished = pyqtSignal(bool, dict)
 
     retry_log_requested = pyqtSignal(str)
+    retry_started = pyqtSignal()
     retry_finished = pyqtSignal(bool, dict)
+    fetch_finished = pyqtSignal(bool, dict)
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent: Optional[QObject] = None):
+        super().__init__(parent)
         self.thread: Optional[QThread] = None
         self.worker: Optional[ExFetchWorker] = None
 
         self.retry_thread: Optional[QThread] = None
-        self.retry_worker: Optional[ExFetchWorker] = None
+        self.retry_worker: Optional[ExRetryWorker] = None
         self._fetch_finished_dispatched = False
         self._retry_finished_dispatched = False
 
@@ -843,6 +884,7 @@ class ExFetchController(QObject):
         if self.thread is not None:
             return
 
+        self.extraction_started.emit()
         self._fetch_finished_dispatched = False
         self.thread = QThread()
         self.worker = ExFetchWorker(project_id, code, target_id)
@@ -860,6 +902,9 @@ class ExFetchController(QObject):
 
         self.thread.start()
 
+    def start_extraction(self, project_id: str, code: str, target_id: str) -> None:
+        self.start_fetch(project_id, code, target_id)
+
     def _reset_thread_state(self) -> None:
         self.thread = None
         self.worker = None
@@ -868,23 +913,27 @@ class ExFetchController(QObject):
     def _on_finished(self, success: bool, doc_data: dict) -> None:
         self._fetch_finished_dispatched = True
         self.fetch_finished.emit(success, doc_data)
+        self.extraction_finished.emit(success, doc_data)
 
     @pyqtSlot()
     def _on_thread_finished(self) -> None:
         if not self._fetch_finished_dispatched:
             self.fetch_finished.emit(False, {})
+            self.extraction_finished.emit(False, {})
 
-    def start_retry(self, project_id: str, code: str, target_id: str) -> None:
+    def start_retry(self, project_id: str, code: str, doc_data: dict) -> None:
         if self.retry_thread is not None:
             return
 
+        self.retry_started.emit()
         self._retry_finished_dispatched = False
         self.retry_thread = QThread()
-        self.retry_worker = ExFetchWorker(project_id, code, target_id)
+        self.retry_worker = ExRetryWorker(project_id, code, doc_data)
         self.retry_worker.moveToThread(self.retry_thread)
 
         self.retry_thread.started.connect(self.retry_worker.run)
         self.retry_worker.log_signal.connect(self.retry_log_requested.emit)
+        self.retry_worker.log_signal.connect(self.log_requested.emit)
         self.retry_worker.finished_signal.connect(self._on_retry_finished)
         self.retry_thread.finished.connect(self._on_retry_thread_finished)
 
@@ -894,6 +943,9 @@ class ExFetchController(QObject):
         self.retry_thread.finished.connect(self._reset_retry_thread_state)
 
         self.retry_thread.start()
+
+    def retry_download(self, project_id: str, code: str, doc_data: dict) -> None:
+        self.start_retry(project_id, code, doc_data)
 
     def _reset_retry_thread_state(self) -> None:
         self.retry_thread = None

@@ -267,8 +267,8 @@ class ExPage1(QWidget):
         self.status_bar.set_status("edicion")
         self.fetch_controller.start_extraction(
             self.current_project_id,
-            self.current_target_id,
             self.current_code,
+            self.current_target_id,
         )
 
     def _on_fetchanexos_clicked(self):

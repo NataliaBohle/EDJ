@@ -79,7 +79,7 @@ class FetchWorker(QThread):
 
         return None
 
-    def _extraer_id_pcpi(self, html: str) -> str | None:
+    def _extraer_id_expci(self, html: str) -> str | None:
         if not html:
             return None
         soup = BeautifulSoup(html, "html.parser")
@@ -212,7 +212,7 @@ class FetchWorker(QThread):
         html_main = self._fetch_html(url_base)
 
         exa86_idr = None
-        pcpi_idr = None
+        pci_idr = None
 
         if html_main:
             self.log_signal.emit("Analizando secciones generales...")
@@ -220,7 +220,7 @@ class FetchWorker(QThread):
 
             # Detectar IDR para EXA86 / EXPCI (si están presentes)
             exa86_idr = self._extraer_id_exa86(html_main)
-            pcpi_idr = self._extraer_id_pcpi(html_main)
+            pci_idr = self._extraer_id_expci(html_main)
 
             for code, fragments in EXPEDIENTES_FRAGMENTS.items():
                 fragment_list = fragments if isinstance(fragments, (list, tuple, set)) else [fragments]
@@ -235,8 +235,8 @@ class FetchWorker(QThread):
                 id_mode = "idp"
 
                 # EXPCI/EXA86: si hay IDR, se extrae por IDR
-                if code == "EXPCI" and pcpi_idr:
-                    target_id = pcpi_idr
+                if code == "EXPCI" and pci_idr:
+                    target_id = pci_idr
                     id_mode = "idr"
                 elif code == "EXA86" and exa86_idr:
                     target_id = exa86_idr
