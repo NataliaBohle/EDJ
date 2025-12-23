@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QScrollArea
 from PyQt6.QtCore import Qt, pyqtSignal
 from src.views.components.chapter import Chapter
 from src.views.components.expediente_card import ExpedienteCard
+from src.utils.expediente_config import steps_for_expediente
 
 
 class ProjectView(QWidget):
@@ -70,20 +71,12 @@ class ProjectView(QWidget):
                 self.container_layout.addWidget(QLabel("Este proyecto no tiene expedientes detectados."))
                 return
 
-            # Definición de pasos
-            steps_default = ["Detectado", "Descargar", "Convertir", "Formatear", "Índice", "Compilar"]
-            steps_short = ["Detectado", "Descargar", "Compilar"]
-
             for code, info in expedientes.items():
                 titulo = info.get("titulo", code)
                 saved_step = info.get("step_index", 0)
                 saved_step_status = info.get("step_status", "detectado")
                 saved_global_status = info.get("status", "detectado")
-                expediente_tipo = info.get("tipo")
-
-                mis_pasos = steps_default
-                if code == "ANTGEN" or expediente_tipo == "recurso":
-                    mis_pasos = steps_short
+                mis_pasos = steps_for_expediente(code, info)
                 # 3. Creamos tarjeta (pasamos el status global)
                 card = ExpedienteCard(title=titulo, code=code, status=saved_global_status, steps=mis_pasos)
                 # 4. Actualizamos estado visual del paso
