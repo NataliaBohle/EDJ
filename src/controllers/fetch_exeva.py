@@ -34,7 +34,6 @@ EXEVA_URL_TEMPLATES = [
 # InsecureRequestWarning.
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-
 # ---------------------------------------------------------------------------
 # Utilidades de parsing
 # ---------------------------------------------------------------------------
