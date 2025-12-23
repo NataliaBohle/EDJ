@@ -7,7 +7,7 @@ from src.views.components.expediente_card import ExpedienteCard
 
 
 class ProjectView(QWidget):
-    action_requested = pyqtSignal(str, str, int)
+    action_requested = pyqtSignal(str, str, int, dict)
     log_requested = pyqtSignal(str)
 
     def __init__(self):
@@ -71,19 +71,19 @@ class ProjectView(QWidget):
                 return
 
             # Definición de pasos
-            STEPS_DEFAULT = ["Detectado", "Descargar", "Convertir", "Formatear", "Índice", "Compilar"]
-            STEPS_SHORT = ["Detectado", "Descargar", "Compilar"]
+            steps_default = ["Detectado", "Descargar", "Convertir", "Formatear", "Índice", "Compilar"]
+            steps_short = ["Detectado", "Descargar", "Compilar"]
 
             for code, info in expedientes.items():
                 titulo = info.get("titulo", code)
                 saved_step = info.get("step_index", 0)
                 saved_step_status = info.get("step_status", "detectado")
                 saved_global_status = info.get("status", "detectado")
+                expediente_tipo = info.get("tipo")
 
-                if code == "ANTGEN":
-                    mis_pasos = STEPS_SHORT
-                else:
-                    mis_pasos = STEPS_DEFAULT
+                mis_pasos = steps_default
+                if code == "ANTGEN" or expediente_tipo == "recurso":
+                    mis_pasos = steps_short
                 # 3. Creamos tarjeta (pasamos el status global)
                 card = ExpedienteCard(title=titulo, code=code, status=saved_global_status, steps=mis_pasos)
                 # 4. Actualizamos estado visual del paso
@@ -98,13 +98,29 @@ class ProjectView(QWidget):
 
                 # Activar herramienta (Botón)
                 card.action_clicked.connect(
-                    lambda c, s, cod=code: self.action_requested.emit(self.project_id_actual, cod, s)
+                    lambda c, s, exp_info=info, cod=code: self.action_requested.emit(
+                        self.project_id_actual,
+                        cod,
+                        s,
+                        self._build_expediente_context(cod, exp_info)
+                    )
                 )
 
                 self.container_layout.addWidget(card)
 
         except Exception as e:
             self.container_layout.addWidget(QLabel(f"Error cargando datos: {e}"))
+
+    def _build_expediente_context(self, code, info):
+        idp = self.project_id_actual
+        idr = info.get("idr")
+        return {
+            "code": code,
+            "tipo": info.get("tipo"),
+            "idp": info.get("idp", idp),
+            "idr": idr,
+            "target_id": idr or idp,
+        }
 
     def save_overall_status_change(self, project_id, code, new_status):
         """Guarda el estado global (MiniStatusBar) de un expediente en el JSON."""
