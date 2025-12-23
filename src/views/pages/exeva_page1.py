@@ -356,6 +356,7 @@ class Exeva1Page(QWidget):
         self.pbar.setVisible(False)
         self.pbar.setRange(0, 100)
         if success:
+            _doc_data["estado_validacion"] = "verificado"
             self.log_requested.emit("✅ Documento reintentado correctamente.")
         else:
             self.log_requested.emit("⚠️ No se pudo reintentar el documento.")
