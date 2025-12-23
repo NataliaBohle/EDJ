@@ -1,5 +1,5 @@
 """
-Controlador para extraer documentos del expediente EXEVA.
+Controlador para extraer documentos del expediente (EX).
 Basado en la lógica de scraping existente en scripts anteriores,
 pero adaptado al estilo de controladores del proyecto actual.
 """
@@ -22,11 +22,17 @@ from bs4 import BeautifulSoup
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 BASE_URL = "https://seia.sea.gob.cl"
-EXEVA_URL_TEMPLATES = [
-    "https://seia.sea.gob.cl/expediente/xhr_expediente2.php?id_expediente={IDP}",
-    "https://seia.sea.gob.cl/expediente/xhr_expediente.php?id_expediente={IDP}",
-    "https://seia.sea.gob.cl/expediente/xhr_documentos.php?id_expediente={IDP}",
-]
+EX_URL_TEMPLATES = {
+    "EXEVA": [
+        "https://seia.sea.gob.cl/expediente/xhr_expediente2.php?id_expediente={IDP}",
+        "https://seia.sea.gob.cl/expediente/xhr_expediente.php?id_expediente={IDP}",
+        "https://seia.sea.gob.cl/expediente/xhr_documentos.php?id_expediente={IDP}",
+    ],
+    # TODO: agregar templates por expediente aquí.
+    # "EXPAC": ["..."],
+    # "EXPCI": ["..."],
+    # "EXA86": ["..."],
+}
 
 # Silenciar advertencias de certificados autofirmados/ausentes durante las
 # peticiones a los servicios de EXEVA. Se mantienen las solicitudes con
@@ -224,7 +230,7 @@ def _parse_tabla_vieja(tabla) -> List[Dict[str, Any]]:
 
 
 def _parse_documentos_from_html(html: str, log: Callable[[str], None] | None) -> List[Dict[str, Any]]:
-    """Parsea HTML de EXEVA y devuelve la lista de documentos encontrados."""
+    """Parsea HTML del expediente y devuelve la lista de documentos encontrados."""
 
     soup = BeautifulSoup(html, "html.parser")
     documentos: List[Dict[str, Any]] = []
@@ -247,7 +253,7 @@ def _parse_documentos_from_html(html: str, log: Callable[[str], None] | None) ->
             if posible:
                 documentos = _parse_tabla_nueva(posible)
             else:
-                _log(log, "[EXEVA] No se encontró tabla de documentos.")
+                _log(log, "[EX] No se encontró tabla de documentos.")
 
     return documentos
 
@@ -293,7 +299,7 @@ def _print_docdigital(url: str, out_path: Path, log: Callable[[str], None] | Non
         driver.quit()
         return True, out_path
     except Exception as exc:
-        _log(log, f"[EXEVA] Falló la impresión Selenium: {exc}")
+        _log(log, f"[EX] Falló la impresión Selenium: {exc}")
         return False, out_path
 
 
@@ -306,9 +312,16 @@ def _doc_folder_name(n: str) -> str:
         return (n[-2:] or "00").zfill(2)
 
 
-def _process_doc(d: dict, base_dir: Path, project_id: str, log: Callable | None, overwrite: bool = False) -> bool:
-    exeva_dir = base_dir / "EXEVA"
-    files_root = exeva_dir / "files"
+def _process_doc(
+    d: dict,
+    base_dir: Path,
+    code: str,
+    project_id: str,
+    log: Callable | None,
+    overwrite: bool = False,
+) -> bool:
+    ex_dir = base_dir / code
+    files_root = ex_dir / "files"
 
     # 1. Validar si ya existe
     if not overwrite:
@@ -372,7 +385,7 @@ def _process_doc(d: dict, base_dir: Path, project_id: str, log: Callable | None,
         try:
             rel = saved_path.resolve().relative_to(base_dir.resolve())
         except Exception:
-            rel = Path("EXEVA") / "files" / saved_path.name
+            rel = Path(code) / "files" / saved_path.name
 
         clean_path = str(rel).replace("\\", "/")
         if clean_path.startswith("/"):
@@ -387,8 +400,13 @@ def _process_doc(d: dict, base_dir: Path, project_id: str, log: Callable | None,
     return False
 
 
-def _download_documents(project_id: str, exeva_data: dict, log: Callable[[str], None] | None = None) -> None:
-    documentos = exeva_data.get("EXEVA", {}).get("documentos", []) if isinstance(exeva_data, dict) else []
+def _download_documents(
+    project_id: str,
+    code: str,
+    ex_data: dict,
+    log: Callable[[str], None] | None = None,
+) -> None:
+    documentos = ex_data.get(code, {}).get("documentos", []) if isinstance(ex_data, dict) else []
     total = len(documentos)
 
     base_dir = Path(os.getcwd()) / "Ebook" / project_id
@@ -396,11 +414,11 @@ def _download_documents(project_id: str, exeva_data: dict, log: Callable[[str], 
     if total == 0:
         return
 
-    _log(log, f"[EXEVA] Iniciando descarga de {total} documentos...")
+    _log(log, f"[EX] Iniciando descarga de {total} documentos...")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         futures = [
-            executor.submit(_process_doc, d, base_dir, project_id, log, False)
+            executor.submit(_process_doc, d, base_dir, code, project_id, log, False)
             for d in documentos
         ]
 
@@ -410,45 +428,50 @@ def _download_documents(project_id: str, exeva_data: dict, log: Callable[[str], 
             try:
                 future.result()
             except Exception as exc:
-                _log(log, f"[EXEVA] Error en descarga concurrente: {exc}")
+                _log(log, f"[EX] Error en descarga concurrente: {exc}")
 
-    _log(log, "[EXEVA] Descarga finalizada.")
+    _log(log, "[EX] Descarga finalizada.")
 
 
 # ---------------------------------------------------------------------------
 # Extracción de datos
 # ---------------------------------------------------------------------------
 
-def _extract_exeva(idp: str, log: Callable[[str], None] | None = None) -> Dict[str, Any]:
+def _extract_expediente(code: str, idp: str, log: Callable[[str], None] | None = None) -> Dict[str, Any]:
     idp = (idp or "").strip()
 
     documentos: List[Dict[str, Any]] = []
-    for template in EXEVA_URL_TEMPLATES:
+    templates = EX_URL_TEMPLATES.get(code, [])
+    if not templates:
+        _log(log, f"[EX] No hay templates configuradas para {code}.")
+        return {"IDP": idp, code: {"documentos": [], "summary": {"total": 0, "format_counts": {}}}}
+
+    for template in templates:
         url = template.format(IDP=idp)
-        _log(log, f"[EXEVA] Consultando expediente: {url}")
+        _log(log, f"[{code}] Consultando expediente: {url}")
 
         try:
             r = requests.get(url, timeout=15, verify=False)
         except requests.RequestException as exc:
-            _log(log, f"[EXEVA] Error de conexión con '{url}': {exc}")
+            _log(log, f"[{code}] Error de conexión con '{url}': {exc}")
             continue
 
         if r.status_code != 200:
-            _log(log, f"[EXEVA] Respuesta HTTP inesperada ({r.status_code}) para '{url}'")
+            _log(log, f"[{code}] Respuesta HTTP inesperada ({r.status_code}) para '{url}'")
             continue
 
         documentos = _parse_documentos_from_html(r.text, log)
         if documentos:
             break
-        _log(log, f"[EXEVA] Respuesta sin documentos desde '{url}', probando siguiente plantilla...")
+        _log(log, f"[{code}] Respuesta sin documentos desde '{url}', probando siguiente plantilla...")
 
     if not documentos:
-        return {"IDP": idp, "EXEVA": {"documentos": [], "summary": {"total": 0, "format_counts": {}}}}
+        return {"IDP": idp, code: {"documentos": [], "summary": {"total": 0, "format_counts": {}}}}
 
     conteo = Counter(doc.get("formato", "sin formato") for doc in documentos)
     return {
         "IDP": idp,
-        "EXEVA": {
+        code: {
             "documentos": documentos,
             "summary": {"total": len(documentos), "format_counts": dict(conteo)},
         },
@@ -459,20 +482,20 @@ def _extract_exeva(idp: str, log: Callable[[str], None] | None = None) -> Dict[s
 # Persistencia
 # ---------------------------------------------------------------------------
 
-def _save_exeva_data(idp: str, exeva_data: dict, new_status: str, log: Callable[[str], None]):
+def _save_ex_data(idp: str, code: str, ex_data: dict, new_status: str, log: Callable[[str], None]):
     base_folder = os.path.join(os.getcwd(), "Ebook", idp)
     base_json_path = os.path.join(base_folder, f"{idp}_fetch.json")
-    exeva_folder = os.path.join(base_folder, "EXEVA")
-    exeva_json_path = os.path.join(exeva_folder, f"{idp}_EXEVA.json")
+    ex_folder = os.path.join(base_folder, code)
+    ex_json_path = os.path.join(ex_folder, f"{idp}_{code}.json")
 
-    os.makedirs(exeva_folder, exist_ok=True)
+    os.makedirs(ex_folder, exist_ok=True)
 
     try:
-        with open(exeva_json_path, "w", encoding="utf-8") as f:
-            json.dump(exeva_data, f, indent=4, ensure_ascii=False)
-        log(f"💾 Datos EXEVA guardados en {exeva_json_path}")
+        with open(ex_json_path, "w", encoding="utf-8") as f:
+            json.dump(ex_data, f, indent=4, ensure_ascii=False)
+        log(f"💾 Datos {code} guardados en {ex_json_path}")
     except Exception as exc:
-        log(f"❌ Error crítico al escribir datos EXEVA: {exc}")
+        log(f"❌ Error crítico al escribir datos {code}: {exc}")
 
     if not os.path.exists(base_json_path):
         log("⚠️ No se encontró el archivo base de configuración para actualizar el estado.")
@@ -482,10 +505,10 @@ def _save_exeva_data(idp: str, exeva_data: dict, new_status: str, log: Callable[
         with open(base_json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        if "EXEVA" in data.get("expedientes", {}):
-            data["expedientes"]["EXEVA"]["status"] = new_status
-            data["expedientes"]["EXEVA"]["step_index"] = 1
-            data["expedientes"]["EXEVA"]["step_status"] = "detectado"
+        if code in data.get("expedientes", {}):
+            data["expedientes"][code]["status"] = new_status
+            data["expedientes"][code]["step_index"] = 1
+            data["expedientes"][code]["step_status"] = "detectado"
             data["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
         with open(base_json_path, "w", encoding="utf-8") as f:
@@ -499,31 +522,33 @@ def _save_exeva_data(idp: str, exeva_data: dict, new_status: str, log: Callable[
 # ---------------------------------------------------------------------------
 
 
-class ExevaFetchWorker(QObject):
+class ExFetchWorker(QObject):
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(bool, dict)
 
-    def __init__(self, project_id: str):
+    def __init__(self, project_id: str, target_id: str, code: str):
         super().__init__()
         self.project_id = project_id
+        self.target_id = target_id
+        self.code = code
 
     @pyqtSlot()
     def run(self):
-        self.log_signal.emit(f"🔎 Extracción de EXEVA para ID {self.project_id}...")
+        self.log_signal.emit(f"🔎 Extracción de {self.code} para ID {self.target_id}...")
         success = False
         result_data: Dict[str, Any] = {}
         try:
-            exeva_data = _extract_exeva(self.project_id, log=self.log_signal.emit)
-            documentos = exeva_data.get("EXEVA", {}).get("documentos", [])
+            ex_data = _extract_expediente(self.code, self.target_id, log=self.log_signal.emit)
+            documentos = ex_data.get(self.code, {}).get("documentos", [])
 
             if documentos:
-                _download_documents(self.project_id, exeva_data, log=self.log_signal.emit)
-                _save_exeva_data(self.project_id, exeva_data, "edicion", log=self.log_signal.emit)
-                self.log_signal.emit("✅ Extracción de EXEVA completada.")
+                _download_documents(self.project_id, self.code, ex_data, log=self.log_signal.emit)
+                _save_ex_data(self.project_id, self.code, ex_data, "edicion", log=self.log_signal.emit)
+                self.log_signal.emit(f"✅ Extracción de {self.code} completada.")
                 success = True
-                result_data = exeva_data
+                result_data = ex_data
             else:
-                _save_exeva_data(self.project_id, exeva_data, "error", log=self.log_signal.emit)
+                _save_ex_data(self.project_id, self.code, ex_data, "error", log=self.log_signal.emit)
                 self.log_signal.emit("❌ Extracción fallida. No se encontraron documentos.")
         except Exception as exc:
             self.log_signal.emit(f"❌ Error inesperado durante extracción: {exc}")
@@ -535,9 +560,10 @@ class SingleDocDownloadWorker(QObject):
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(bool, dict)
 
-    def __init__(self, project_id: str, doc_data: dict):
+    def __init__(self, project_id: str, code: str, doc_data: dict):
         super().__init__()
         self.project_id = project_id
+        self.code = code
         self.doc_data = doc_data
 
     @pyqtSlot()
@@ -545,7 +571,14 @@ class SingleDocDownloadWorker(QObject):
         success = False
         try:
             base_dir = Path(os.getcwd()) / "Ebook" / self.project_id
-            success = _process_doc(self.doc_data, base_dir, self.project_id, self.log_signal.emit, overwrite=True)
+            success = _process_doc(
+                self.doc_data,
+                base_dir,
+                self.code,
+                self.project_id,
+                self.log_signal.emit,
+                overwrite=True,
+            )
             if success:
                 self.log_signal.emit("✅ Reintento de descarga completado.")
             else:
@@ -555,7 +588,7 @@ class SingleDocDownloadWorker(QObject):
         self.finished_signal.emit(success, self.doc_data)
 
 
-class FetchExevaController(QObject):
+class FetchExController(QObject):
     extraction_started = pyqtSignal()
     extraction_finished = pyqtSignal(bool, dict)
     retry_started = pyqtSignal()
@@ -564,21 +597,21 @@ class FetchExevaController(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.worker: ExevaFetchWorker | None = None
+        self.worker: ExFetchWorker | None = None
         self.thread: QThread | None = None
         self._finished_dispatched = False
         self.retry_worker: SingleDocDownloadWorker | None = None
         self.retry_thread: QThread | None = None
         self._retry_finished_dispatched = False
 
-    def start_extraction(self, project_id: str):
+    def start_extraction(self, project_id: str, target_id: str, code: str):
         if self.thread and self.thread.isRunning():
-            self.log_requested.emit("⚠️ Extracción de EXEVA ya está en curso.")
+            self.log_requested.emit("⚠️ Extracción de expediente ya está en curso.")
             return
 
         self.extraction_started.emit()
         self.thread = QThread()
-        self.worker = ExevaFetchWorker(project_id)
+        self.worker = ExFetchWorker(project_id, target_id, code)
         self._finished_dispatched = False
 
         self.worker.moveToThread(self.thread)
@@ -609,14 +642,14 @@ class FetchExevaController(QObject):
         if not self._finished_dispatched:
             self.extraction_finished.emit(False, {})
 
-    def retry_download(self, project_id: str, doc_data: dict) -> None:
+    def retry_download(self, project_id: str, code: str, doc_data: dict) -> None:
         if self.retry_thread and self.retry_thread.isRunning():
             self.log_requested.emit("⚠️ Ya hay un reintento de descarga en curso.")
             return
 
         self.retry_started.emit()
         self.retry_thread = QThread()
-        self.retry_worker = SingleDocDownloadWorker(project_id, doc_data)
+        self.retry_worker = SingleDocDownloadWorker(project_id, code, doc_data)
         self._retry_finished_dispatched = False
 
         self.retry_worker.moveToThread(self.retry_thread)

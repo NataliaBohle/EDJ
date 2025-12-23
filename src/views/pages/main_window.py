@@ -8,7 +8,7 @@ from src.views.pages.new_ebook import NewEbook
 from src.views.pages.cont_ebook import ContEbook
 from src.views.pages.project_view import ProjectView
 from src.views.pages.antgen_page import AntGenPage
-from src.views.pages.exeva_page1 import Exeva1Page
+from src.views.pages.ex_page1 import ExPage1
 from src.views.pages.exeva_page2 import Exeva2Page
 # Asegúrate de que el nombre del archivo coincida (fetch_exp o fetch_exp_controller)
 from src.controllers.fetch_exp import FetchExp
@@ -77,8 +77,8 @@ class MainWindow(QMainWindow):
         self.workspace_stack.addWidget(self.antgen_page)
 
         # Inicializar Exeva Page
-        self.exeva_page = Exeva1Page()
-        self.workspace_stack.addWidget(self.exeva_page)
+        self.ex_page = ExPage1()
+        self.workspace_stack.addWidget(self.ex_page)
 
         self.exeva_page2 = Exeva2Page()
         self.workspace_stack.addWidget(self.exeva_page2)
@@ -102,10 +102,12 @@ class MainWindow(QMainWindow):
         self.page_project_view.action_requested.connect(self.step_controller.handle_activation)
         self.page_project_view.log_requested.connect(self.log_screen.add_log)
         self.antgen_page.log_requested.connect(self.log_screen.add_log)
-        self.exeva_page.log_requested.connect(self.log_screen.add_log)
+        self.ex_page.log_requested.connect(self.log_screen.add_log)
         self.exeva_page2.log_requested.connect(self.log_screen.add_log)
-        self.exeva_page.step2_requested.connect(self.show_exeva_page2)
-        self.exeva_page2.back_requested.connect(self.show_exeva_page)
+        self.ex_page.step2_requested.connect(self.show_exeva_page2)
+        self.exeva_page2.back_requested.connect(
+            lambda pid: self.show_ex_page({"idp": pid, "target_id": pid, "code": "EXEVA"})
+        )
 
 
         # --- 5. TAMAÑOS INICIALES ---
@@ -145,10 +147,12 @@ class MainWindow(QMainWindow):
         self.antgen_page.load_project(project_id)
         self.workspace_stack.setCurrentWidget(self.antgen_page)
 
-    def show_exeva_page(self, project_id):
-        self.log_screen.add_log(f"Entrando a EXEVA: {project_id}")
-        self.exeva_page.load_project(project_id)
-        self.workspace_stack.setCurrentWidget(self.exeva_page)
+    def show_ex_page(self, exp_context):
+        code = exp_context.get("code") if isinstance(exp_context, dict) else "EX"
+        target_id = exp_context.get("target_id") if isinstance(exp_context, dict) else exp_context
+        self.log_screen.add_log(f"Entrando a {code}: {target_id}")
+        self.ex_page.load_project(exp_context)
+        self.workspace_stack.setCurrentWidget(self.ex_page)
 
     def show_exeva_page2(self, project_id):
         self.log_screen.add_log(f"Entrando a EXEVA Paso 2: {project_id}")

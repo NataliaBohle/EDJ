@@ -17,22 +17,24 @@ from src.views.components.links_review import LinksReviewDialog
 from src.views.components.mini_status import MiniStatusBar
 
 # Controladores y Modelos de antgen
-from src.controllers.fetch_exeva import FetchExevaController
+from src.controllers.fetch_ex import FetchExController
 from src.controllers.fetch_anexos import FetchAnexosController
 from src.controllers.down_anexos import DownAnexosController
 from src.models.project_data_manager import ProjectDataManager
 
 
-class Exeva1Page(QWidget):
+class ExPage1(QWidget):
     log_requested = pyqtSignal(str)
     step2_requested = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
-        self.setObjectName("Exeva1Page")
+        self.setObjectName("ExPage1")
         self.current_project_id = None
+        self.current_target_id = None
+        self.current_code = None
         self.is_loading = False
-        self.exeva_payload = {}
+        self.ex_payload = {}
         self.documentos = []
 
         # 1. Inicializar Lógica de Negocio (Controladores y Modelos)
@@ -47,7 +49,7 @@ class Exeva1Page(QWidget):
         self.data_manager.log_requested.connect(self.log_requested.emit)
 
         # Controladores a implementar en siguientes iteraciones
-        self.fetch_controller = FetchExevaController(self)
+        self.fetch_controller = FetchExController(self)
         self.fetch_controller.log_requested.connect(self.log_requested.emit)
         self.fetch_controller.extraction_started.connect(self._on_extraction_started)
         self.fetch_controller.extraction_finished.connect(self._on_extraction_finished)
@@ -73,7 +75,7 @@ class Exeva1Page(QWidget):
         header_lay = QVBoxLayout(header_widget)
         header_lay.setContentsMargins(40, 30, 40, 10)
 
-        self.header = Chapter("Evaluación Ambiental")
+        self.header = Chapter("Expediente")
 
         status_box = QWidget()
         sb_lay = QHBoxLayout(status_box)
@@ -147,13 +149,13 @@ class Exeva1Page(QWidget):
         self.content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.lbl_placeholder = QLabel(
-            "Los resultados del expediente EXEVA aparecerán aquí una vez implementada la extracción."
+            "Los resultados del expediente aparecerán aquí una vez implementada la extracción."
         )
         self.lbl_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.content_layout.addWidget(self.lbl_placeholder)
 
         self.results_table = EditableTableCard(
-            "Resultados EXEVA",
+            "Resultados Expediente",
             columns=[
                 ("n", "N° Documento"),
                 ("folio", "Folio"),
@@ -197,25 +199,36 @@ class Exeva1Page(QWidget):
         self.scroll.setWidget(self.content_widget)
         layout.addWidget(self.scroll)
 
-    def load_project(self, pid: str):
+    def load_project(self, exp_context: dict):
         """Carga el estado del proyecto desde disco y ajusta la UI."""
+        if isinstance(exp_context, dict):
+            pid = exp_context.get("idp") or ""
+            target_id = exp_context.get("target_id") or pid
+            code = exp_context.get("code") or "EXEVA"
+        else:
+            pid = exp_context
+            target_id = pid
+            code = "EXEVA"
+
         self.current_project_id = pid
+        self.current_target_id = target_id
+        self.current_code = code
         self.is_loading = True
-        self.header.title_label.setText(f"Expediente EXEVA - ID {pid}")
+        self.header.title_label.setText(f"Expediente {code} - ID {target_id}")
 
         data = self.data_manager.load_data(pid)
-        exeva_section = data.get("expedientes", {}).get("EXEVA", {})
-        exeva_payload = self.data_manager.load_exeva_data(pid)
-        self.exeva_payload = exeva_payload or {}
+        ex_section = data.get("expedientes", {}).get(code, {})
+        ex_payload = self.data_manager.load_ex_data(pid, code)
+        self.ex_payload = ex_payload or {}
 
-        step_idx = exeva_section.get("step_index", 0)
-        step_status = exeva_section.get("step_status", "detectado")
-        global_status = exeva_section.get("status", "detectado")
+        step_idx = ex_section.get("step_index", 0)
+        step_status = ex_section.get("step_status", "detectado")
+        global_status = ex_section.get("status", "detectado")
 
         self.timeline.set_current_step(step_idx, step_status)
         self.status_bar.set_status(global_status)
 
-        documentos = exeva_payload.get("EXEVA", {}).get("documentos", [])
+        documentos = ex_payload.get(code, {}).get("documentos", [])
         self.documentos = documentos
         has_docs = bool(documentos)
 
@@ -225,7 +238,7 @@ class Exeva1Page(QWidget):
             self.btn_fetchexeva.setText("Volver a Descargar")
         else:
             self.lbl_placeholder.setText(
-                "Los resultados del expediente EXEVA aparecerán aquí una vez implementada la extracción."
+                "Los resultados del expediente aparecerán aquí una vez implementada la extracción."
             )
             self.btn_fetchexeva.setText("1. Descargar Expediente")
         self.lbl_placeholder.setVisible(True)
@@ -240,7 +253,7 @@ class Exeva1Page(QWidget):
         self.timeline.set_current_step(idx, new_status)
         self.data_manager.update_step_status(
             self.current_project_id,
-            "EXEVA",
+            self.current_code,
             step_index=idx,
             step_status=new_status,
             global_status=new_status,
@@ -249,10 +262,14 @@ class Exeva1Page(QWidget):
     # --- ACCIONES (PLACEHOLDERS) ---
 
     def _on_fetchexeva_clicked(self):
-        if not self.current_project_id:
+        if not self.current_project_id or not self.current_target_id:
             return
         self.status_bar.set_status("edicion")
-        self.fetch_controller.start_extraction(self.current_project_id)
+        self.fetch_controller.start_extraction(
+            self.current_project_id,
+            self.current_target_id,
+            self.current_code,
+        )
 
     def _on_fetchanexos_clicked(self):
         if not self.current_project_id:
@@ -287,8 +304,8 @@ class Exeva1Page(QWidget):
         self.pbar.setRange(0, 100)
 
         if success:
-            self.exeva_payload = data or {}
-            documentos = data.get("EXEVA", {}).get("documentos", [])
+            self.ex_payload = data or {}
+            documentos = data.get(self.current_code, {}).get("documentos", [])
             self.documentos = documentos
             total = len(documentos)
             self.lbl_placeholder.setText(f"Expediente descargado: {total} documentos detectados.")
@@ -297,7 +314,11 @@ class Exeva1Page(QWidget):
             self.status_bar.set_status("edicion")
             self.timeline.set_current_step(1, "edicion")
             self.data_manager.update_step_status(
-                self.current_project_id, "EXEVA", step_index=1, step_status="edicion", global_status="edicion"
+                self.current_project_id,
+                self.current_code,
+                step_index=1,
+                step_status="edicion",
+                global_status="edicion",
             )
             self.btn_fetchexeva.setText("Volver a Descargar")
         else:
@@ -306,7 +327,7 @@ class Exeva1Page(QWidget):
             self.lbl_placeholder.setText("No se pudo descargar el expediente. Intente nuevamente.")
             self.lbl_placeholder.setVisible(True)
             self._set_results_table([])
-            QMessageBox.critical(self, "Error", "Fallo en la extracción de EXEVA.")
+            QMessageBox.critical(self, "Error", "Fallo en la extracción del expediente.")
 
     def _on_anexos_detection_started(self):
         self.btn_fetchanexos.setEnabled(False)
@@ -319,9 +340,9 @@ class Exeva1Page(QWidget):
         self.pbar.setRange(0, 100)
 
         if success:
-            exeva_payload = self.data_manager.load_exeva_data(self.current_project_id)
-            self.exeva_payload = exeva_payload or {}
-            documentos = exeva_payload.get("EXEVA", {}).get("documentos", [])
+            ex_payload = self.data_manager.load_ex_data(self.current_project_id, self.current_code)
+            self.ex_payload = ex_payload or {}
+            documentos = ex_payload.get(self.current_code, {}).get("documentos", [])
             self.documentos = documentos
             self._set_results_table(documentos)
             self.log_requested.emit("✅ Anexos detectados y tabla actualizada.")
@@ -339,9 +360,9 @@ class Exeva1Page(QWidget):
         self.pbar.setRange(0, 100)
 
         if success:
-            exeva_payload = self.data_manager.load_exeva_data(self.current_project_id)
-            self.exeva_payload = exeva_payload or {}
-            documentos = exeva_payload.get("EXEVA", {}).get("documentos", [])
+            ex_payload = self.data_manager.load_ex_data(self.current_project_id, self.current_code)
+            self.ex_payload = ex_payload or {}
+            documentos = ex_payload.get(self.current_code, {}).get("documentos", [])
             self.documentos = documentos
             self._set_results_table(documentos)
             self.log_requested.emit("✅ Descarga de anexos finalizada y tabla actualizada.")
@@ -360,7 +381,7 @@ class Exeva1Page(QWidget):
             self.log_requested.emit("✅ Documento reintentado correctamente.")
         else:
             self.log_requested.emit("⚠️ No se pudo reintentar el documento.")
-        self._persist_exeva_payload()
+        self._persist_ex_payload()
         self._set_results_table(self.documentos)
 
     def _set_results_table(self, documentos: list[dict]) -> None:
@@ -448,7 +469,7 @@ class Exeva1Page(QWidget):
             if isinstance(button, QPushButton):
                 button.setEnabled(False)
                 button.setText("Reintentando...")
-        self.fetch_controller.retry_download(self.current_project_id, doc_data)
+        self.fetch_controller.retry_download(self.current_project_id, self.current_code, doc_data)
 
     def _open_pdf_viewer(self, doc_data: dict) -> None:
         viewer = PdfViewer(doc_data, self, self.current_project_id)
@@ -608,17 +629,17 @@ class Exeva1Page(QWidget):
             doc_data["estado_validacion"] = "error"
         else:
             doc_data["estado_validacion"] = status
-        self._persist_exeva_payload()
+        self._persist_ex_payload()
         self._update_global_status_from_rows()
 
-    def _persist_exeva_payload(self) -> None:
-        if not self.current_project_id:
+    def _persist_ex_payload(self) -> None:
+        if not self.current_project_id or not self.current_code:
             return
-        payload = dict(self.exeva_payload or {})
-        payload.setdefault("EXEVA", {})
-        payload["EXEVA"]["documentos"] = self.documentos
-        self.exeva_payload = payload
-        self.data_manager.save_exeva_data(self.current_project_id, payload)
+        payload = dict(self.ex_payload or {})
+        payload.setdefault(self.current_code, {})
+        payload[self.current_code]["documentos"] = self.documentos
+        self.ex_payload = payload
+        self.data_manager.save_ex_data(self.current_project_id, self.current_code, payload)
 
     def _update_global_status_from_rows(self) -> None:
         if not self.documentos:
@@ -630,7 +651,7 @@ class Exeva1Page(QWidget):
             self.timeline.set_current_step(idx, "verificado")
             self.data_manager.update_step_status(
                 self.current_project_id,
-                "EXEVA",
+                self.current_code,
                 step_index=idx,
                 step_status="verificado",
                 global_status="verificado",
