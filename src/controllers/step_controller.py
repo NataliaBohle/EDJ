@@ -16,4 +16,8 @@ class StepController(QObject):
             f"⚡ Solicitud: {code} -> Paso Índice {step_index} (target: {target_id})"
         )
 
+        if code == "ANTGEN":
+            self.main_window.show_antgen_page(target_id)
+            return
+
         self.main_window.show_ex_page(exp_context)
