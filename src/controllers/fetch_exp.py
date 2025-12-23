@@ -49,6 +49,24 @@ class FetchWorker(QThread):
         m = re.search(r"id_expediente=(\d+)", onclick)
         return m.group(1) if m else None
 
+    def _extraer_id_exa86(self, html: str) -> str | None:
+        if not html:
+            return None
+        soup = BeautifulSoup(html, "html.parser")
+        for tag in soup.find_all(onclick=True):
+            onclick = tag.get("onclick", "")
+            if "xhr_pci_reunion.php" in onclick:
+                idr = self._extraer_idr_desde_onclick(onclick)
+                if idr:
+                    return idr
+        for tag in soup.find_all(href=True):
+            href = tag.get("href", "")
+            if "xhr_pci_reunion.php" in href:
+                m = re.search(r"id_expediente=(\d+)", href)
+                if m:
+                    return m.group(1)
+        return None
+
     def run(self):
         idp = self.project_id
         self.log_signal.emit(f"🔍 Consultando SEIA para ID: {idp}...")
@@ -65,6 +83,7 @@ class FetchWorker(QThread):
         if html_main:
             self.log_signal.emit("Analizando secciones generales...")
             html_lower = html_main.lower()
+            exa86_idr = self._extraer_id_exa86(html_main)
 
             for code, fragments in EXPEDIENTES_FRAGMENTS.items():
                 fragment_list = fragments if isinstance(fragments, (list, tuple, set)) else [fragments]
@@ -78,6 +97,8 @@ class FetchWorker(QThread):
                         "step_index": 0,
                         "step_status": "detectado"  # <--- AGREGADO: Inicializa en azul
                     }
+                    if code == "EXA86" and exa86_idr:
+                        expedientes_data[code]["idr"] = exa86_idr
         else:
             self.log_signal.emit("⚠️ No se pudo cargar la ficha principal (posible error de conexión).")
 
