@@ -5,7 +5,7 @@ from functools import partial
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QLabel, QHBoxLayout,
-    QProgressBar, QFrame, QMessageBox, QAbstractItemView, QHeaderView, QPushButton
+    QProgressBar, QFrame, QMessageBox, QAbstractItemView, QHeaderView, QPushButton, QTableWidgetItem
 )
 
 # Componentes
@@ -390,7 +390,7 @@ class ExPage1(QWidget):
         self.documentos = documentos
         rows = [
             {
-                "n": doc.get("n", ""),
+                "n": self._get_doc_identifier(doc),
                 "folio": doc.get("folio", ""),
                 "titulo": doc.get("titulo", ""),
                 "remitido_por": doc.get("remitido_por", ""),
@@ -499,7 +499,7 @@ class ExPage1(QWidget):
 
         # 2. Configurar y abrir diálogo
         title = str(doc_data.get("titulo") or "Doc")
-        parent_n = str(doc_data.get("n") or doc_data.get("num_doc") or "0")
+        parent_n = self._get_doc_identifier(doc_data) or "0"
         pid = self.current_project_id or ""
         code = self.current_code or "EXEVA"
 
@@ -517,29 +517,27 @@ class ExPage1(QWidget):
 
                 # ACTUALIZAR LA UI
                 self._refresh_row_counts(doc_data)
-                self._refresh_row_status(doc_data)
                 self._persist_ex_payload()
                 self.log_requested.emit(f"Enlaces actualizados para documento N° {parent_n}")
         finally:
             dialog.cleanup_temp()
 
+    def _get_doc_identifier(self, doc_data: dict) -> str:
+        return str(doc_data.get("n") or doc_data.get("num_doc") or "").strip()
+
     def _refresh_row_counts(self, doc_data: dict):
         """Busca la fila del documento y actualiza los números de anexos/vinculados."""
-        target_n = str(doc_data.get("n") or "")
+        target_n = self._get_doc_identifier(doc_data)
         table = self.results_table.table
 
-        # Buscar índices de columnas dinámicamente
-        col_n, col_anex, col_vinc = -1, -1, -1
-        for c in range(table.columnCount()):
-            h = table.horizontalHeaderItem(c).text()
-            if h == "N° Documento":
-                col_n = c
-            elif h == "Anexos":
-                col_anex = c
-            elif h == "Vinculados":
-                col_vinc = c
+        col_lookup = {key: idx for idx, (key, _label) in enumerate(self.results_table.columns)}
+        col_n = col_lookup.get("n")
+        col_anex = col_lookup.get("anexos_detectados")
+        col_vinc = col_lookup.get("vinculados_detectados")
+        col_ver = col_lookup.get("ver_anexos")
 
-        if col_n == -1: return
+        if col_n is None:
+            return
 
         # Buscar la fila y actualizar
         for r in range(table.rowCount()):
@@ -549,12 +547,47 @@ class ExPage1(QWidget):
                 n_a = len(doc_data.get("anexos_detectados", []))
                 n_v = len(doc_data.get("vinculados_detectados", []))
 
-                if col_anex != -1:
-                    table.item(r, col_anex).setText(str(n_a))
-                if col_vinc != -1:
-                    table.item(r, col_vinc).setText(str(n_v))
+                if col_anex is not None:
+                    item_anex = table.item(r, col_anex)
+                    if item_anex is None:
+                        item_anex = QTableWidgetItem()
+                        table.setItem(r, col_anex, item_anex)
+                    item_anex.setText(str(n_a))
+                if col_vinc is not None:
+                    item_vinc = table.item(r, col_vinc)
+                    if item_vinc is None:
+                        item_vinc = QTableWidgetItem()
+                        table.setItem(r, col_vinc, item_vinc)
+                    item_vinc.setText(str(n_v))
+
+                if col_ver is not None:
+                    self._update_links_cell(r, col_ver, doc_data)
+
                 self._refresh_row_status(doc_data, row_index=r)
                 return
+
+        # Si no se encontró la fila (por columnas dinámicas), refrescamos toda la tabla
+        self._set_results_table(self.documentos)
+
+    def _update_links_cell(self, row_index: int, col_ver: int, doc_data: dict) -> None:
+        table = self.results_table.table
+        has_links = self._doc_has_links(doc_data)
+        if not has_links:
+            table.removeCellWidget(row_index, col_ver)
+            item = table.item(row_index, col_ver)
+            if item is None:
+                item = QTableWidgetItem("")
+                table.setItem(row_index, col_ver, item)
+            else:
+                item.setText("")
+            return
+
+        btn = table.cellWidget(row_index, col_ver)
+        if not isinstance(btn, QPushButton):
+            button = QPushButton("Ver anexos", table)
+            button.setObjectName("BtnActionSecondary")
+            button.clicked.connect(partial(self._open_links_review, doc_data))
+            table.setCellWidget(row_index, col_ver, button)
 
     def _refresh_row_status(self, doc_data: dict, row_index: int | None = None) -> None:
         table = self.results_table.table
@@ -566,7 +599,7 @@ class ExPage1(QWidget):
             return
 
         if row_index is None:
-            target_n = str(doc_data.get("n") or "")
+            target_n = self._get_doc_identifier(doc_data)
             col_n = next(
                 (idx for idx, (key, _label) in enumerate(self.results_table.columns) if key == "n"),
                 None,
