@@ -19,7 +19,6 @@ from PyQt6.QtWidgets import (
     QMessageBox,
 )
 
-# QtPdf
 try:
     from PyQt6.QtPdf import QPdfDocument
 
@@ -28,7 +27,6 @@ except Exception:
     QT_PDF_AVAILABLE = False
     QPdfDocument = None
 
-# Writer backend
 PdfReader = None
 PdfWriter = None
 PDF_AVAILABLE = False
@@ -250,33 +248,20 @@ class PageOrganizer(QDialog):
         self._rotations.clear()
         self.saved = False
 
-        # --- LÓGICA MEJORADA: Detección inteligente de ratio (Mediana) ---
         ratios = []
-        # Escaneamos solo las primeras 20 páginas para no perder rendimiento
         scan_limit = min(self._page_count, 20)
 
         for i in range(scan_limit):
             ps = self.doc.pagePointSize(i)
             if not ps.isEmpty() and ps.width() > 0:
-                # Calculamos proporción: alto / ancho
                 ratios.append(float(ps.height()) / float(ps.width()))
 
         if ratios:
-            # Ordenamos para encontrar la mediana (el valor central)
-            # Esto evita que un solo plano gigante deforme el grid de un informe A4
             ratios.sort()
             median_ratio = ratios[len(ratios) // 2]
-
-            # Aplicamos límites de seguridad (Clamp)
-            # Mínimo 0.6 (muy apaisado) - Máximo 1.8 (muy vertical)
-            # Así evitamos que documentos extraños rompan la interfaz visualmente
             self._page_ratio = max(0.6, min(median_ratio, 1.8))
         else:
-            # Valor por defecto si no se pudo leer geometría
             self._page_ratio = 1.35
-
-            # ---------------------------------------------------------------
-
         self._apply_thumb_sizes()
         self._build_items()
         self._set_status()
@@ -296,18 +281,16 @@ class PageOrganizer(QDialog):
     def _build_items(self) -> None:
         self.list.clear()
 
-        # 1. Crear un placeholder del tamaño exacto que esperamos
+        # 1. Crear un placeholder
         icon_size = self.list.iconSize()
         placeholder = QPixmap(icon_size)
-        placeholder.fill(Qt.GlobalColor.transparent)  # O Qt.GlobalColor.white si prefieres
+        placeholder.fill(Qt.GlobalColor.transparent)
         dummy_icon = QIcon(placeholder)
 
         for i in range(self._page_count):
             it = QListWidgetItem(f"{i + 1}")
             it.setData(Qt.ItemDataRole.UserRole, i)
             it.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
-
-            # 2. Asignar el placeholder INMEDIATAMENTE para reservar espacio
             it.setIcon(dummy_icon)
 
             self.list.addItem(it)
@@ -316,7 +299,6 @@ class PageOrganizer(QDialog):
         QTimer.singleShot(0, self._render_step)
 
     def _render_step(self) -> None:
-        """Render progresivo de miniaturas. No recibe args (QTimer lo llama sin parámetros)."""
         i = getattr(self, "_render_i", 0)
 
         if i < 0 or i >= self._page_count or i >= self.list.count():
@@ -329,7 +311,6 @@ class PageOrganizer(QDialog):
         rot = _norm_rot(self._rotations.get(i, 0))
         pix = self._render_thumb(i, rot=rot, target_w=self._thumb_w)
 
-        # Etiquetas: número + rotación + BL
         flags = []
         if rot:
             flags.append(f"⟳{rot}°")
@@ -343,8 +324,6 @@ class PageOrganizer(QDialog):
 
         it.setIcon(QIcon(pix))
         it.setData(Qt.ItemDataRole.UserRole, i)
-
-        # siguiente
         self._render_i = i + 1
         if self._render_i < self._page_count:
             QTimer.singleShot(0, self._render_step)
@@ -365,8 +344,7 @@ class PageOrganizer(QDialog):
         else:
             page_ratio = float(ps.height()) / float(ps.width())
 
-        # 3. Calcular tamaño de renderizado CORRECTO (sin deformar)
-        #    Usamos una resolución alta para calidad, pero respetando 'page_ratio'
+        # 3. Calcular tamaño de renderizado
         max_side = max(1000, max(content_w, content_h) * 3)
 
         if page_ratio > 1:  # Es vertical
@@ -376,7 +354,7 @@ class PageOrganizer(QDialog):
             render_w = max_side
             render_h = int(max_side * page_ratio)
 
-        # Renderizar: Ahora sí pedimos el tamaño proporcional, no un cuadrado forzado
+        # Renderizar
         img = self.doc.render(page_idx, QSize(render_w, render_h))
 
         if img.isNull():
@@ -386,15 +364,15 @@ class PageOrganizer(QDialog):
 
         img = img.convertToFormat(QImage.Format.Format_ARGB32)
 
-        # 4. Rotar la imagen limpia
+        # 4. Rotar la imagen
         rot_n = _norm_rot(rot)
         if rot_n:
             t = QTransform()
             t.rotate(rot_n)
             img = img.transformed(t, Qt.TransformationMode.SmoothTransformation)
 
-        # 5. Escalar para que QUEPA en la celda (KeepAspectRatio)
-        #    Esto asegura que se vea toda la hoja sin cortes ni estiramientos
+        # 5. Escalar para la celda (KeepAspectRatio)
+        #    Esto asegura que se vea toda la hoja
         scaled = img.scaled(
             QSize(content_w, content_h),
             Qt.AspectRatioMode.KeepAspectRatio,
@@ -407,7 +385,7 @@ class PageOrganizer(QDialog):
 
         p = QPainter(out)
 
-        # Calcular offset para centrar (letterbox vertical u horizontal)
+        # Calcular offset para centrar
         x_off = (out_w - scaled.width()) // 2
         y_off = (out_h - scaled.height()) // 2
 
