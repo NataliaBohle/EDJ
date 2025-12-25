@@ -20,7 +20,7 @@ EXPEDIENTES_FRAGMENTS = {
     # EXREC se maneja dinámicamente (REC_{idr} pero se extrae con fetch_code="EXREC")
     "EXSAN": "sanciones/xhr_principal.php",
     "EXREV": "revisionRCA/principal.php",
-    "CAL": "newPlazos.php",
+    #"CAL": "newPlazos.php", no habilitado aún
 }
 
 UI_TITLES = {

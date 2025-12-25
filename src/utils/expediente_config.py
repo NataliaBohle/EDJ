@@ -4,6 +4,6 @@ SHORT_STEPS = ["Detectado", "Descargar", "Compilar"]
 
 def steps_for_expediente(code, info):
     expediente_tipo = info.get("tipo")
-    if code == "ANTGEN" or expediente_tipo == "recurso":
+    if code == "ANTGEN":
         return SHORT_STEPS
     return DEFAULT_STEPS

@@ -1,11 +1,3 @@
-"""
-Controlador para extraer documentos del expediente (EX).
-
-- EXREX -> EXREC (corregido).
-- Soporta códigos dinámicos tipo REC_215... (usa plantilla base EXREC).
-- EXPCI / EXA86 / EXREC construyen URL con IDR.
-- Parsers: EXEVA (nueva/vieja), PAC, PCI, Art.86, Recursos.
-"""
 
 from __future__ import annotations
 
@@ -20,6 +12,7 @@ from urllib.parse import urlparse
 
 import requests
 import urllib3
+import base64
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -41,7 +34,8 @@ EX_URL_TEMPLATES: Dict[str, List[str]] = {
 
     # EXREC: endpoints a probar (ajusta a tu endpoint real si ya lo tienes)
     "EXREC": [
-        f"{BASE_URL}/expediente/xhr_expediente2.php?id_expediente={{IDR}}"
+        f"{BASE_URL}/expediente/xhr_expediente2.php?id_expediente={{IDR}}",
+        f"{BASE_URL}/expediente/xhr_documentos.php?id_expediente={{IDR}}"
     ],
 }
 
@@ -566,6 +560,63 @@ def _parse_documentos_from_html(html: str, log: Optional[Callable[[str], None]])
 # -----------------------------------------------------------------------------
 # Descarga (mantiene contrato)
 # -----------------------------------------------------------------------------
+def _print_docdigital(url: str, out_path: Path, log: Optional[Callable[[str], None]] = None) -> Tuple[bool, Path]:
+    """
+    Render real con Selenium (Chrome headless) + Page.printToPDF.
+    Produce PDF incluso cuando el link es una vista web (doc digital / php).
+    """
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.chrome.service import Service
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.support.ui import WebDriverWait
+        from webdriver_manager.chrome import ChromeDriverManager
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        chrome_options = Options()
+        chrome_options.add_argument("--headless=new")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--window-size=1280,2000")
+        chrome_options.add_argument(
+            "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+        )
+
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        try:
+            driver.get(url)
+            WebDriverWait(driver, timeout=45).until(
+                lambda d: d.execute_script("return document.readyState") == "complete"
+            )
+
+            pdf = driver.execute_cdp_cmd(
+                "Page.printToPDF",
+                {
+                    "printBackground": True,
+                    # Legal 8.5 x 13
+                    "paperWidth": 8.5,
+                    "paperHeight": 13,
+                },
+            )
+
+            if out_path.suffix.lower() != ".pdf":
+                out_path = out_path.with_suffix(".pdf")
+
+            with open(out_path, "wb") as f:
+                f.write(base64.b64decode(pdf["data"]))
+
+            return True, out_path
+        finally:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+
+    except Exception as e:
+        _log(log, f"[Selenium/printToPDF] Falló impresión doc digital: {e}")
+        return False, out_path
 
 def _download_binary(session: requests.Session, url: str, out_path: Path) -> Tuple[bool, Path]:
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -581,6 +632,55 @@ def _download_binary(session: requests.Session, url: str, out_path: Path) -> Tup
     except Exception:
         return False, out_path
 
+def _is_pdf_file(path: Path) -> bool:
+    try:
+        with open(path, "rb") as f:
+            head = f.read(5)
+        return head == b"%PDF-"
+    except Exception:
+        return False
+
+def _resolve_pdf_firmado_url(session: requests.Session, url: str, log: Optional[Callable[[str], None]] = None) -> str:
+    """
+    Intenta convertir una URL de firma (vista) en una URL descargable directa al PDF.
+    Si no encuentra nada, devuelve la URL original.
+    """
+    try:
+        r = session.get(url, timeout=25, verify=False, allow_redirects=True)
+        if r.status_code != 200:
+            return url
+
+        ct = (r.headers.get("Content-Type") or "").lower()
+        if "application/pdf" in ct:
+            return r.url  # ya es pdf directo
+
+        html = r.text or ""
+        soup = BeautifulSoup(html, "html.parser")
+
+        # Heurísticas: buscar links/iframes/embeds que apunten a .pdf
+        candidates: List[str] = []
+
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if ".pdf" in href.lower():
+                candidates.append(href)
+
+        for tag in soup.find_all(["iframe", "embed", "object"]):
+            src = tag.get("src") or tag.get("data")
+            if src and ".pdf" in src.lower():
+                candidates.append(src)
+
+        # Normalizar a absoluta si es relativa
+        for cand in candidates:
+            if cand.startswith("http"):
+                return cand
+            # dominio de firma
+            return "https://firma.sea.gob.cl" + (cand if cand.startswith("/") else "/" + cand)
+
+        return url
+    except Exception as e:
+        _log(log, f"[pdf_firmado] No se pudo resolver URL directa: {e}")
+        return url
 
 def _process_doc(
     session: requests.Session,
@@ -620,14 +720,36 @@ def _process_doc(
 
     base_name = _sanitize_filename("_".join([p for p in [n, folio, titulo] if p])) or "documento"
     ext_url = _url_extension(url)
-    final_ext = ext_url or ".bin"
-    if ext_url in ("", ".php") or "documento.php" in url.lower():
-        final_ext = ".pdf"
+    formato = str(d.get("formato") or "").strip().lower()
+    url_l = url.lower()
 
+    is_php_like = ext_url in ("", ".php") or "documento.php" in url_l
+    is_doc_digital = (formato == "doc digital") or is_php_like
+
+    is_pdf_firmado = (formato == "pdf firmado") or ("firma.sea.gob.cl" in url_l) or ("infofirma.sea.gob.cl" in url_l)
+
+    # Extensión final
+    final_ext = ".pdf" if (is_doc_digital or is_pdf_firmado) else (ext_url or ".bin")
     saved_path = out_dir / (base_name + final_ext)
 
-    _log(log, f"[Worker] Descargando: {titulo}")
-    ok, saved_path = _download_binary(session, url, saved_path)
+    ok = False
+
+    if is_pdf_firmado:
+        # NUEVO: descarga "normal" pero resolviendo URL directa y validando PDF
+        _log(log, f"[Worker] Descargando (pdf firmado): {titulo}")
+        direct_url = _resolve_pdf_firmado_url(session, url, log=log)
+        ok, saved_path = _download_binary(session, direct_url, saved_path)
+        if ok and not _is_pdf_file(saved_path):
+            _log(log, f"[Worker] pdf firmado no era PDF real (posible HTML/visor).")
+            ok = False
+
+    elif is_doc_digital:
+        _log(log, f"[Worker] Imprimiendo (Selenium): {titulo}")
+        ok, saved_path = _print_docdigital(url, saved_path, log=log)
+
+    else:
+        _log(log, f"[Worker] Descargando (binario): {titulo}")
+        ok, saved_path = _download_binary(session, url, saved_path)
 
     if ok:
         try:
