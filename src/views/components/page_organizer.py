@@ -1,17 +1,3 @@
-# page_organizer.py
-# Componente independiente para "Organizar Páginas" (SIN WebEngine).
-# - Grid de miniaturas (raster)
-# - Rotar página seleccionada / todas
-# - Guardar rotación REAL en el PDF (PyPDF2 o pypdf)
-#
-# Requisitos:
-#   pip install PyQt6
-#   y además UNO de:
-#     pip install PyPDF2
-#     pip install pypdf
-#   Para miniaturas:
-#     PyQt6 con QtPdf disponible (PyQt6.QtPdf -> QPdfDocument)
-
 from __future__ import annotations
 
 import os
@@ -61,6 +47,12 @@ except Exception:
     except Exception:
         PDF_AVAILABLE = False
 
+try:
+    import fitz  # PyMuPDF
+    FITZ_AVAILABLE = True
+except Exception:
+    fitz = None
+    FITZ_AVAILABLE = False
 
 def _norm_rot(deg: int) -> int:
     d = int(deg) % 360
@@ -94,6 +86,7 @@ class PageOrganizer(QDialog):
 
         self._rotations: dict[int, int] = {}  # idx -> deg
         self._page_count = 0
+        self._blank_marks: set[int] = set()
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
@@ -109,6 +102,7 @@ class PageOrganizer(QDialog):
         self.btn_r_cur = QPushButton("⟳ actual")
         self.btn_l_all = QPushButton("⟲ todas")
         self.btn_r_all = QPushButton("⟳ todas")
+        self.btn_mark_blank = QPushButton("Marcar blanco (actual)")
 
         self.btn_save = QPushButton("Guardar")
         self.btn_close = QPushButton("Cerrar")
@@ -120,8 +114,10 @@ class PageOrganizer(QDialog):
         self.btn_r_cur.clicked.connect(lambda: self._rotate_selected(+90))
         self.btn_l_all.clicked.connect(lambda: self._rotate_all(-90))
         self.btn_r_all.clicked.connect(lambda: self._rotate_all(+90))
+        self.btn_mark_blank.clicked.connect(self._toggle_mark_blank_selected)
         self.btn_save.clicked.connect(self._save)
         self.btn_close.clicked.connect(self.close)
+
 
         self._thumb_w = 100
         self._thumb_w_min = 100
@@ -141,6 +137,7 @@ class PageOrganizer(QDialog):
         bl.addWidget(self.btn_l_cur)
         bl.addWidget(self.btn_r_cur)
         bl.addWidget(self.btn_r_all)
+        bl.addWidget(self.btn_mark_blank)
         bl.addWidget(self.btn_save)
         bl.addWidget(self.btn_close)
         bl.addWidget(self.lbl, 1)
@@ -169,6 +166,9 @@ class PageOrganizer(QDialog):
         a2 = QAction("Rotar ⟳ (90°)", self.list)
         a1.triggered.connect(lambda: self._rotate_selected(-90))
         a2.triggered.connect(lambda: self._rotate_selected(+90))
+        a3 = QAction("Marcar blanco (marca de agua)", self.list)
+        a3.triggered.connect(self._toggle_mark_blank_selected)
+        self.list.addAction(a3)
         self.list.addAction(a1)
         self.list.addAction(a2)
 
@@ -178,6 +178,19 @@ class PageOrganizer(QDialog):
         self.doc = QPdfDocument(self) if QT_PDF_AVAILABLE else None
 
         self._load()
+
+    def _toggle_mark_blank_selected(self) -> None:
+        idx = self._selected_index()
+        if idx is None:
+            return
+
+        if idx in self._blank_marks:
+            self._blank_marks.remove(idx)
+        else:
+            self._blank_marks.add(idx)
+
+        self._refresh_item(idx)
+        self._set_status()
 
     def _apply_thumb_sizes(self) -> None:
         w = int(self._thumb_w)
@@ -273,8 +286,12 @@ class PageOrganizer(QDialog):
             b.setEnabled(False)
 
     def _set_status(self) -> None:
-        dirty = len(self._rotations)
-        self.lbl.setText(f"{os.path.basename(self.pdf_path)} | {self._page_count} pág | {dirty} rotadas")
+        dirty_rot = len(self._rotations)
+        dirty_mark = len(self._blank_marks)
+        self.lbl.setText(
+            f"{os.path.basename(self.pdf_path)} | {self._page_count} pág | "
+            f"{dirty_rot} rotadas | {dirty_mark} marcadas"
+        )
 
     def _build_items(self) -> None:
         self.list.clear()
@@ -299,23 +316,38 @@ class PageOrganizer(QDialog):
         QTimer.singleShot(0, self._render_step)
 
     def _render_step(self) -> None:
+        """Render progresivo de miniaturas. No recibe args (QTimer lo llama sin parámetros)."""
         i = getattr(self, "_render_i", 0)
-        if i >= self._page_count:
+
+        if i < 0 or i >= self._page_count or i >= self.list.count():
             return
 
         it = self.list.item(i)
-        if it is not None:
-            rot = _norm_rot(self._rotations.get(i, 0))
-            pix = self._render_thumb(i, rot=rot, target_w=self._thumb_w)
+        if it is None:
+            return
 
-            if rot:
-                it.setText(f"{i + 1}  ⟳{rot}°")
-            else:
-                it.setText(f"{i + 1}")
-            it.setIcon(QIcon(pix))
+        rot = _norm_rot(self._rotations.get(i, 0))
+        pix = self._render_thumb(i, rot=rot, target_w=self._thumb_w)
 
+        # Etiquetas: número + rotación + BL
+        flags = []
+        if rot:
+            flags.append(f"⟳{rot}°")
+        if i in getattr(self, "_blank_marks", set()):
+            flags.append("BL")
+
+        if flags:
+            it.setText(f"{i + 1}  " + "  ".join(flags))
+        else:
+            it.setText(f"{i + 1}")
+
+        it.setIcon(QIcon(pix))
+        it.setData(Qt.ItemDataRole.UserRole, i)
+
+        # siguiente
         self._render_i = i + 1
-        QTimer.singleShot(0, self._render_step)
+        if self._render_i < self._page_count:
+            QTimer.singleShot(0, self._render_step)
 
     def _render_thumb(self, page_idx: int, rot: int, target_w: int) -> QPixmap:
         # 1. Configurar caja final y área de contenido
@@ -433,23 +465,33 @@ class PageOrganizer(QDialog):
         rot = _norm_rot(self._rotations.get(idx, 0))
         pix = self._render_thumb(idx, rot=rot, target_w=self._thumb_w)
 
+        flags = []
         if rot:
-            it.setText(f"{idx + 1}  ⟳{rot}°")
+            flags.append(f"⟳{rot}°")
+        if idx in getattr(self, "_blank_marks", set()):
+            flags.append("BL")
+
+        if flags:
+            it.setText(f"{idx + 1}  " + "  ".join(flags))
         else:
             it.setText(f"{idx + 1}")
 
         it.setIcon(QIcon(pix))
 
     def _save(self) -> None:
-        if not self._rotations:
-            QMessageBox.information(self, "Guardar", "No hay rotaciones pendientes.")
+        if not self._rotations and not self._blank_marks:
+            QMessageBox.information(self, "Guardar", "No hay cambios pendientes.")
             return
         if not PDF_AVAILABLE:
             QMessageBox.critical(self, "Guardar", "No está disponible PyPDF2 ni pypdf para escribir el PDF.")
             return
+        if self._blank_marks and not FITZ_AVAILABLE:
+            QMessageBox.critical(self, "Guardar", "Falta PyMuPDF (pymupdf) para aplicar la marca de agua.")
+            return
 
         src = self.pdf_path
         tmp = src + ".tmp"
+        tmp2 = src + ".tmp2"
         bak = src + ".bak"
 
         try:
@@ -459,9 +501,9 @@ class PageOrganizer(QDialog):
                     os.remove(bak)
                 shutil.copy2(src, bak)
             except Exception:
-                # si falla el backup, igual intentamos guardar, pero avisamos
                 pass
 
+            # 1) aplicar rotaciones al tmp (igual que tu flujo)
             reader = PdfReader(src)
             writer = PdfWriter()
 
@@ -474,17 +516,74 @@ class PageOrganizer(QDialog):
             with open(tmp, "wb") as f:
                 writer.write(f)
 
+            # 2) aplicar marcas sobre tmp => tmp2 (solo si corresponde)
+            if self._blank_marks:
+                doc = fitz.open(tmp)
+                try:
+                    for i in sorted(self._blank_marks):
+                        if i < 0 or i >= doc.page_count:
+                            continue
+                        page = doc.load_page(i)
+                        rect = page.rect
+
+                        text = "Página en blanco desde e-SEIA"
+
+                        # Caja centrada amplia
+                        box_w = rect.width * 0.7
+                        box_h = rect.height * 0.30
+
+                        box = fitz.Rect(
+                            rect.x0 + (rect.width - box_w) / 2,
+                            rect.y0 + (rect.height - box_h) / 2,
+                            rect.x0 + (rect.width + box_w) / 2,
+                            rect.y0 + (rect.height + box_h) / 2,
+                        )
+
+                        # Transparencia 60% => opacidad 40% (alpha=0.40)
+                        shape = page.new_shape()
+                        center = fitz.Point(
+                            rect.x0 + rect.width / 2,
+                            rect.y0 + rect.height / 2
+                        )
+                        m = fitz.Matrix(1, 1).prerotate(60)  # diagonal real
+
+                        shape.insert_textbox(
+                            box,
+                            text,
+                            fontsize=max(56, int(min(rect.width, rect.height) * 0.035)),
+                            fontname="helv",
+                            color=(0, 0, 0, 0.3),
+                            align=fitz.TEXT_ALIGN_CENTER,
+                            morph=(center, m),
+                        )
+                        shape.commit(overlay=True)
+
+                    doc.save(tmp2, deflate=True, garbage=4)
+                finally:
+                    doc.close()
+
+                # reemplazar tmp por tmp2
+                try:
+                    os.remove(tmp)
+                except Exception:
+                    pass
+                shutil.move(tmp2, tmp)
+
+            # 3) mover tmp al original (commit final)
             shutil.move(tmp, src)
+
             self._rotations.clear()
+            self._blank_marks.clear()
             self.saved = True
-            QMessageBox.information(self, "Guardar", "Rotaciones aplicadas al PDF.")
+            QMessageBox.information(self, "Guardar", "Cambios aplicados al PDF.")
             self._load()
 
         except Exception as e:
-            # limpiar tmp si quedó
-            try:
-                if os.path.exists(tmp):
-                    os.remove(tmp)
-            except Exception:
-                pass
+            # limpiar temporales si quedaron
+            for p in (tmp, tmp2):
+                try:
+                    if os.path.exists(p):
+                        os.remove(p)
+                except Exception:
+                    pass
             QMessageBox.critical(self, "Error al guardar", str(e))
