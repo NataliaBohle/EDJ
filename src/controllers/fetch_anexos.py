@@ -60,12 +60,12 @@ def _log(cb: Callable[[str], None] | None, message: str) -> None:
         cb(message)
 
 
-def _get_exeva_json_path(idp: str) -> Path:
-    return Path(os.getcwd()) / "Ebook" / idp / "EXEVA" / f"{idp}_EXEVA.json"
+def _get_ex_json_path(idp: str, code: str) -> Path:
+    return Path(os.getcwd()) / "Ebook" / idp / code / f"{idp}_{code}.json"
 
 
-def _load_payload(idp: str) -> dict:
-    path = _get_exeva_json_path(idp)
+def _load_payload(idp: str, code: str) -> dict:
+    path = _get_ex_json_path(idp, code)
     if not path.exists():
         return {}
     try:
@@ -74,8 +74,8 @@ def _load_payload(idp: str) -> dict:
         return {}
 
 
-def _save_result(payload: dict, idp: str) -> Path:
-    path = _get_exeva_json_path(idp)
+def _save_result(payload: dict, idp: str, code: str) -> Path:
+    path = _get_ex_json_path(idp, code)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=4, ensure_ascii=False), encoding="utf-8")
     return path
@@ -285,18 +285,19 @@ def _process_doc_attachments(doc: dict, detect_dir: Path, log: Callable | None) 
         _log(log, f"[Worker] {doc_titulo}: {len(anexos_list)} anexos, {len(vinculados_list)} vinculados.")
 
 
-def detect_attachments(idp: str, log: Callable[[str], None] | None = None) -> dict:
-    payload = _load_payload(idp) or {}
-    exeva = payload.get("EXEVA")
-    if not isinstance(exeva, dict):
-        _log(log, f"[EXEVA3] No hay bloque EXEVA para ID {idp}.")
+def detect_attachments(idp: str, code: str = "EXEVA", log: Callable[[str], None] | None = None) -> dict:
+    code = (code or "EXEVA").strip()
+    payload = _load_payload(idp, code) or {}
+    ex_section = payload.get(code)
+    if not isinstance(ex_section, dict):
+        _log(log, f"[ANEXOS] No hay bloque {code} para ID {idp}.")
         return {}
 
-    documentos = exeva.get("documentos") or []
+    documentos = ex_section.get("documentos") or []
     total = len(documentos)
-    detect_dir = Path(__file__).resolve().parent / "Detect"
+    detect_dir = Path(os.getcwd()) / "Ebook" / idp
 
-    _log(log, f"[EXEVA3] Iniciando análisis concurrente (10 workers) sobre {total} documentos...")
+    _log(log, f"[ANEXOS] ({code}) Iniciando análisis concurrente (10 workers) sobre {total} documentos...")
 
     SAVE_INTERVAL = 10
     processed_count = 0
@@ -313,36 +314,37 @@ def detect_attachments(idp: str, log: Callable[[str], None] | None = None) -> di
                 f.result()
                 processed_count += 1
                 if processed_count % SAVE_INTERVAL == 0:
-                    payload["EXEVA"] = exeva
-                    _save_result(payload, idp)
-                    _log(log, f"[Persistencia] Progreso parcial guardado ({processed_count}/{total}).")
+                    payload[code] = ex_section
+                    _save_result(payload, idp, code)
+                    _log(log, f"[Persistencia] ({code}) Progreso parcial guardado ({processed_count}/{total}).")
             except Exception as e:
-                _log(log, f"[EXEVA3] Error en un hilo: {e}")
+                _log(log, f"[ANEXOS] ({code}) Error en un hilo: {e}")
 
-    path_res = _save_result(payload, idp)
-    _log(log, f"[EXEVA3] Proceso finalizado. Datos guardados en: {path_res}")
-    return exeva
+    path_res = _save_result(payload, idp, code)
+    _log(log, f"[ANEXOS] ({code}) Proceso finalizado. Datos guardados en: {path_res}")
+    return ex_section
 
 
 class AnexosDetectWorker(QObject):
     finished_signal = pyqtSignal(bool, dict)
     log_signal = pyqtSignal(str)
 
-    def __init__(self, project_id: str):
+    def __init__(self, project_id: str, code: str = "EXEVA"):
         super().__init__()
         self.project_id = project_id
+        self.code = code
 
     @pyqtSlot()
     def run(self) -> None:
         success = False
         result_data: dict = {}
         try:
-            result_data = detect_attachments(self.project_id, log=self.log_signal.emit)
+            result_data = detect_attachments(self.project_id, self.code, log=self.log_signal.emit)
             if result_data:
                 success = True
-                self.log_signal.emit("✅ Detección de anexos completada.")
+                self.log_signal.emit(f"✅ Detección de anexos completada para {self.code}.")
             else:
-                self.log_signal.emit("⚠️ No se detectaron anexos para este expediente.")
+                self.log_signal.emit(f"⚠️ No se detectaron anexos para {self.code}.")
         except Exception as exc:
             self.log_signal.emit(f"❌ Error inesperado durante detección de anexos: {exc}")
         self.finished_signal.emit(success, result_data)
@@ -359,14 +361,14 @@ class FetchAnexosController(QObject):
         self.thread: QThread | None = None
         self._finished_dispatched = False
 
-    def start_detection(self, project_id: str) -> None:
+    def start_detection(self, project_id: str, code: str = "EXEVA") -> None:
         if self.thread and self.thread.isRunning():
             self.log_requested.emit("⚠️ Detección de anexos ya está en curso.")
             return
 
         self.detection_started.emit()
         self.thread = QThread()
-        self.worker = AnexosDetectWorker(project_id)
+        self.worker = AnexosDetectWorker(project_id, code)
         self._finished_dispatched = False
 
         self.worker.moveToThread(self.thread)
