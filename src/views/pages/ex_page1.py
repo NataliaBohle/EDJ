@@ -274,7 +274,7 @@ class ExPage1(QWidget):
     def _on_fetchanexos_clicked(self):
         if not self.current_project_id:
             return
-        self.fetch_anexos_controller.start_detection(self.current_project_id)
+        self.fetch_anexos_controller.start_detection(self.current_project_id, self.current_code)
 
     def _on_downanexos_clicked(self):
         if not self.current_project_id:
