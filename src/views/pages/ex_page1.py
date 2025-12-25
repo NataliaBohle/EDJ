@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from functools import partial
 
@@ -279,7 +281,7 @@ class ExPage1(QWidget):
     def _on_downanexos_clicked(self):
         if not self.current_project_id:
             return
-        self.down_anexos_controller.start_download(self.current_project_id)
+        self.down_anexos_controller.start_download(self.current_project_id, self.current_code)
 
     def _on_continue_step2_clicked(self):
         if not self.current_project_id:
@@ -499,12 +501,14 @@ class ExPage1(QWidget):
         title = str(doc_data.get("titulo") or "Doc")
         parent_n = str(doc_data.get("n") or doc_data.get("num_doc") or "0")
         pid = self.current_project_id or ""
+        code = self.current_code or "EXEVA"
 
-        dialog = LinksReviewDialog(title, links, pid, parent_n, self)
+        temp_path = Path.cwd() / "Ebook" / pid / code / f"tmp_links_{parent_n}.json"
+        dialog = LinksReviewDialog(title, links, pid, code, parent_n, self, temp_path)
 
-        # 3. Si el usuario guardó cambios
-        if dialog.exec():
-            if dialog.modified:
+        accepted = dialog.exec()
+        try:
+            if accepted:
                 new_links = dialog.get_links()
 
                 # Separar y actualizar en memoria
@@ -514,7 +518,10 @@ class ExPage1(QWidget):
                 # ACTUALIZAR LA UI
                 self._refresh_row_counts(doc_data)
                 self._refresh_row_status(doc_data)
+                self._persist_ex_payload()
                 self.log_requested.emit(f"Enlaces actualizados para documento N° {parent_n}")
+        finally:
+            dialog.cleanup_temp()
 
     def _refresh_row_counts(self, doc_data: dict):
         """Busca la fila del documento y actualiza los números de anexos/vinculados."""

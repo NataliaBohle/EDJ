@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import os
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
@@ -8,16 +9,17 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QHBoxLayout, QHeaderView, QMessageBox, QLabel, QWidget, QAbstractItemView
 )
-from PyQt6.QtGui import QColor, QDesktopServices, QFontMetrics
+from PyQt6.QtGui import QColor, QDesktopServices
 from PyQt6.QtCore import QUrl
 
 
 class RetryWorker(QObject):
     finished = pyqtSignal(bool, int)
 
-    def __init__(self, idp, parent_n, link_obj, row_index):
+    def __init__(self, idp, code, parent_n, link_obj, row_index):
         super().__init__()
         self.idp = idp
+        self.code = code
         self.parent_n = parent_n
         self.link_obj = link_obj
         self.row_index = row_index
@@ -31,22 +33,27 @@ class RetryWorker(QObject):
                 sys.path.insert(0, str(project_root))
             from src.controllers.down_anexos import download_single_attachment
 
-            ok = download_single_attachment(self.idp, self.parent_n, self.link_obj)
+            ok = download_single_attachment(self.idp, self.code, self.parent_n, self.link_obj)
             self.finished.emit(ok, self.row_index)
         except Exception:
             self.finished.emit(False, self.row_index)
 
 
 class LinksReviewDialog(QDialog):
-    def __init__(self, title: str, links: list, idp: str, parent_n: str, parent=None):
+    def __init__(self, title: str, links: list, idp: str, code: str, parent_n: str,
+                 parent=None, temp_path: str | Path | None = None):
         super().__init__(parent)
         self.setWindowTitle(f"Revisión de vínculos: {title}")
         self.resize(1200, 600)
 
         self.links = list(links)
         self.idp = idp
+        self.code = code
         self.parent_n = parent_n
+        self.temp_path = Path(temp_path) if temp_path else None
         self.modified = False
+
+        self._load_links_from_temp()
 
         layout = QVBoxLayout(self)
 
@@ -108,6 +115,48 @@ class LinksReviewDialog(QDialog):
         layout.addLayout(btn_layout)
 
         self._populate_table()
+
+    def _load_links_from_temp(self) -> None:
+        if not self.temp_path:
+            return
+        try:
+            self.temp_path.parent.mkdir(parents=True, exist_ok=True)
+            if self.temp_path.exists():
+                try:
+                    stored_links = json.loads(self.temp_path.read_text(encoding="utf-8"))
+                    if isinstance(stored_links, list):
+                        self.links = stored_links
+                        return
+                except Exception:
+                    QMessageBox.warning(
+                        self,
+                        "Advertencia",
+                        "No se pudo leer el archivo temporal de enlaces. Se regenerará.",
+                    )
+            self._save_temp_links()
+        except Exception as exc:
+            QMessageBox.warning(self, "Error", f"No se pudo preparar los enlaces temporales:\n{exc}")
+            self.temp_path = None
+
+    def _save_temp_links(self) -> None:
+        if not self.temp_path:
+            return
+        try:
+            self.temp_path.parent.mkdir(parents=True, exist_ok=True)
+            self.temp_path.write_text(
+                json.dumps(self.links, indent=4, ensure_ascii=False), encoding="utf-8"
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "Error", f"No se pudo guardar los enlaces temporales:\n{exc}")
+
+    def cleanup_temp(self) -> None:
+        if not self.temp_path:
+            return
+        try:
+            if self.temp_path.exists():
+                self.temp_path.unlink()
+        except Exception as exc:
+            QMessageBox.warning(self, "Error", f"No se pudo limpiar el archivo temporal:\n{exc}")
 
     def _smart_truncate(self, text, max_chars=50):
         """Corta el texto en el medio: 'https://inicio...final.pdf'"""
@@ -251,6 +300,7 @@ class LinksReviewDialog(QDialog):
     def _delete_link(self, index):
         del self.links[index]
         self.modified = True
+        self._save_temp_links()
         self._populate_table()
 
     def _exclude_forever(self, index):
@@ -277,7 +327,7 @@ class LinksReviewDialog(QDialog):
             for child in w.findChildren(QLabel): child.setText("...")
             for child in w.findChildren(QPushButton): child.setEnabled(False)
 
-        self.worker = RetryWorker(self.idp, self.parent_n, self.links[index], index)
+        self.worker = RetryWorker(self.idp, self.code, self.parent_n, self.links[index], index)
         self.thread = QThread()
         self.worker.moveToThread(self.thread)
         self.worker.finished.connect(self._on_retry_finished)
@@ -292,12 +342,13 @@ class LinksReviewDialog(QDialog):
             self.modified = True
         else:
             QMessageBox.warning(self, "Error", "La descarga falló nuevamente.")
+        self._save_temp_links()
         self._populate_table()
 
     def _resolve_link_path(self, ruta: str) -> str:
         ruta_text = str(ruta).replace("/", os.sep).replace("\\", os.sep)
         if os.path.isabs(ruta_text): return str(Path(ruta_text).resolve())
-        base = Path(os.getcwd()) / "Ebook" / str(self.idp) / "EXEVA"
+        base = Path(os.getcwd()) / "Ebook" / str(self.idp) / self.code
         return str((base / ruta_text).resolve())
 
     def _open_link_file(self, index):
@@ -323,4 +374,19 @@ class LinksReviewDialog(QDialog):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(file_path)))
 
     def get_links(self):
+        if self.temp_path and self.temp_path.exists():
+            try:
+                stored_links = json.loads(self.temp_path.read_text(encoding="utf-8"))
+                if isinstance(stored_links, list):
+                    self.links = stored_links
+            except Exception as exc:
+                QMessageBox.warning(self, "Error", f"No se pudo leer los enlaces temporales:\n{exc}")
         return self.links
+
+    def accept(self) -> None:
+        self._save_temp_links()
+        super().accept()
+
+    def reject(self) -> None:
+        self.cleanup_temp()
+        super().reject()
