@@ -96,12 +96,12 @@ def _process_link_item(
     return False
 
 
-def _get_exeva_json_path(idp: str) -> Path:
-    return Path(os.getcwd()) / "Ebook" / idp / "EXEVA" / f"{idp}_EXEVA.json"
+def _get_ex_json_path(idp: str, code: str) -> Path:
+    return Path(os.getcwd()) / "Ebook" / idp / code / f"{idp}_{code}.json"
 
 
-def _load_payload(idp: str) -> dict:
-    path = _get_exeva_json_path(idp)
+def _load_payload(idp: str, code: str) -> dict:
+    path = _get_ex_json_path(idp, code)
     if not path.exists():
         return {}
     try:
@@ -110,23 +110,23 @@ def _load_payload(idp: str) -> dict:
         return {}
 
 
-def _save_payload(idp: str, payload: dict) -> Path:
-    path = _get_exeva_json_path(idp)
+def _save_payload(idp: str, code: str, payload: dict) -> Path:
+    path = _get_ex_json_path(idp, code)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=4, ensure_ascii=False), encoding="utf-8")
     return path
 
 
-def download_attachments_files(idp: str, log: Callable[[str], None] | None = None) -> dict:
-    payload = _load_payload(idp) or {}
-    exeva = payload.get("EXEVA")
-    if not isinstance(exeva, dict):
+def download_attachments_files(idp: str, code: str, log: Callable[[str], None] | None = None) -> dict:
+    payload = _load_payload(idp, code) or {}
+    ex_data = payload.get(code)
+    if not isinstance(ex_data, dict):
         return {}
 
-    documentos = exeva.get("documentos") or []
-    exeva_dir = Path(os.getcwd()) / "Ebook" / idp / "EXEVA"
-    detect_dir = exeva_dir
-    out_base = exeva_dir / "files"
+    documentos = ex_data.get("documentos") or []
+    code_dir = Path(os.getcwd()) / "Ebook" / idp / code
+    detect_dir = code_dir
+    out_base = code_dir / "files"
 
     tasks = []
 
@@ -146,7 +146,7 @@ def download_attachments_files(idp: str, log: Callable[[str], None] | None = Non
     total = len(tasks)
     if total == 0:
         _log(log, "[Descarga de Anexos] Todos los anexos están descargados.")
-        return exeva
+        return ex_data
 
     _log(log, f"[Descarga de Anexos] Iniciando descarga de {total} anexos (4 workers)...")
 
@@ -168,17 +168,17 @@ def download_attachments_files(idp: str, log: Callable[[str], None] | None = Non
 
                 # Guardado parcial menos frecuente
                 if processed % SAVE_INTERVAL == 0:
-                    _save_payload(idp, payload)
+                    _save_payload(idp, code, payload)
                     _log(log, f"[Persistencia] Progreso anexos: {processed}/{total}")
 
             except Exception as e:
                 _log(log, f"Error en hilo: {e}")
 
     # Guardado final asegurado
-    path_res = _save_payload(idp, payload)
+    path_res = _save_payload(idp, code, payload)
     _log(log, f"[Descarga de Anexos] Proceso finalizado. Datos actualizados.")
 
-    return exeva
+    return ex_data
 
 
 def _clear_attachment_node(link_obj: dict, detect_dir: Path, log: Callable | None) -> None:
@@ -203,14 +203,15 @@ def _clear_attachment_node(link_obj: dict, detect_dir: Path, log: Callable | Non
 
 def download_single_attachment(
     idp: str,
+    code: str,
     parent_n: str,
     link_obj: dict,
     log: Callable[[str], None] | None = None,
 ) -> bool:
     """Descarga un único anexo (para el botón Reintentar de la UI)."""
-    exeva_dir = Path(os.getcwd()) / "Ebook" / idp / "EXEVA"
-    detect_dir = exeva_dir
-    out_base = exeva_dir / "files"
+    code_dir = Path(os.getcwd()) / "Ebook" / idp / code
+    detect_dir = code_dir
+    out_base = code_dir / "files"
 
     _clear_attachment_node(link_obj, detect_dir, log)
 
@@ -229,16 +230,17 @@ class AnexosDownloadWorker(QObject):
     finished_signal = pyqtSignal(bool, dict)
     log_signal = pyqtSignal(str)
 
-    def __init__(self, project_id: str):
+    def __init__(self, project_id: str, code: str):
         super().__init__()
         self.project_id = project_id
+        self.code = code
 
     @pyqtSlot()
     def run(self) -> None:
         success = False
         result_data: dict = {}
         try:
-            result_data = download_attachments_files(self.project_id, log=self.log_signal.emit)
+            result_data = download_attachments_files(self.project_id, self.code, log=self.log_signal.emit)
             if result_data:
                 success = True
                 self.log_signal.emit("✅ Descarga de anexos completada.")
@@ -260,14 +262,14 @@ class DownAnexosController(QObject):
         self.thread: QThread | None = None
         self._finished_dispatched = False
 
-    def start_download(self, project_id: str) -> None:
+    def start_download(self, project_id: str, code: str) -> None:
         if self.thread and self.thread.isRunning():
             self.log_requested.emit("⚠️ Descarga de anexos ya está en curso.")
             return
 
         self.download_started.emit()
         self.thread = QThread()
-        self.worker = AnexosDownloadWorker(project_id)
+        self.worker = AnexosDownloadWorker(project_id, code)
         self._finished_dispatched = False
 
         self.worker.moveToThread(self.thread)
